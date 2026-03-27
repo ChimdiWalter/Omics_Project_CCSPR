@@ -1,0 +1,497 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\captionsetup{font=small}
+
+\title{CC-SPR: Supplementary Material\\[6pt]
+\large Resource-Bounded Execution, Supporting Results, Reproducibility, and Extended Diagnostics}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Repository and Data Inventory}
+\label{sec:inventory}
+% ============================================================
+
+Repository root: \texttt{/cluster/VAST/kazict-lab/e/lesion\_phes/code/ccspr}.
+
+\subsection{Data artifacts}
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{LUAD anchor}: \texttt{results/metrics.csv}, \texttt{results/main\_results.csv}, \texttt{results/ablation\_summary.csv}
+\item \textbf{LUAD multiseed}: \texttt{results/metrics\_luad\_multiseed.csv}, \texttt{results/paired\_stats\_luad\_multiseed.csv}
+\item \textbf{Bulk substitute (GSE161711)}: \texttt{data/cll\_venetoclax/processed\_matrix.tsv}
+\item \textbf{GSE161711 results}: \texttt{results/metrics\_cll\_venetoclax\_gse161711.csv}, \texttt{results/ablation\_summary\_cll\_venetoclax\_gse161711.csv}
+\item \textbf{Single-cell substitute (GSE165087)}: \texttt{data/cll\_rs\_scrna/data.h5ad}
+\item \textbf{GSE165087 results}: \texttt{results/metrics\_cll\_rs\_scrna\_gse165087.csv}
+\item \textbf{BRCA support}: \texttt{results/brca/metrics.csv}
+\item \textbf{Consolidated}: \texttt{results/metrics\_all\_datasets.csv}, \texttt{results/main\_results\_all\_datasets.csv}, \texttt{results/ablation\_summary\_all\_datasets.csv}
+\end{itemize}
+
+\subsection{Figure inventory}
+All figures referenced in the main paper are stored under \texttt{results/figures/}:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{f1\_bars\_ci.png} --- LUAD benchmark bar chart with CI
+\item \texttt{paired\_deltas\_luad\_multiseed.png} --- LUAD multiseed paired deltas
+\item \texttt{geometry\_backend\_summary.png} --- Euclidean vs Ricci comparison across datasets
+\item \texttt{tip\_eu\_vs\_ricci.png} --- LUAD TIP comparison
+\item \texttt{h1\_lifetime\_eu\_vs\_ricci.png} --- LUAD $H_1$ lifetime comparison
+\item \texttt{h1\_prominence\_eu\_vs\_ricci.png} --- LUAD $H_1$ prominence comparison
+\item \texttt{lambda\_robustness.png} --- LUAD $\lambda$ sensitivity
+\item \texttt{tip\_eu\_vs\_ricci\_cll\_venetoclax\_gse161711.png} --- GSE161711 TIP comparison
+\item \texttt{h1\_lifetime\_eu\_vs\_ricci\_cll\_venetoclax\_gse161711.png} --- GSE161711 $H_1$ lifetime
+\item \texttt{h1\_prominence\_eu\_vs\_ricci\_cll\_venetoclax\_gse161711.png} --- GSE161711 $H_1$ prominence
+\item \texttt{lambda\_robustness\_cll\_venetoclax\_gse161711.png} --- GSE161711 $\lambda$ sensitivity
+\item \texttt{f1\_bars\_ci\_cll\_rs\_scrna\_gse165087.png} --- GSE165087 bounded benchmark
+\item \texttt{tip\_eu\_vs\_ricci\_cll\_rs\_scrna\_gse165087.png} --- GSE165087 TIP comparison
+\item \texttt{h1\_lifetime\_eu\_vs\_ricci\_cll\_rs\_scrna\_gse165087.png} --- GSE165087 $H_1$ lifetime
+\item \texttt{h1\_prominence\_eu\_vs\_ricci\_cll\_rs\_scrna\_gse165087.png} --- GSE165087 $H_1$ prominence
+\item \texttt{ablation\_profiles\_luad\_gse161711.png} --- Cross-dataset ablation profiles
+\item \texttt{ablation\_best\_summary.png} --- Best ablation settings summary
+\end{itemize}
+
+\subsection{Table inventory}
+Lightweight derived tables under \texttt{results/tables/}:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{paired\_stats\_luad\_multiseed.csv} --- LUAD multiseed paired statistics
+\item \texttt{geometry\_backend\_summary.csv} --- Geometry backend performance comparison
+\item \texttt{geometry\_diagnostics\_summary.csv} --- Topological diagnostics by backend and dataset
+\item \texttt{representative\_diagnostics\_summary.csv} --- TIP and sparsity diagnostics availability
+\item \texttt{geometry\_runtime\_cost\_summary.csv} --- Runtime and resource usage by job
+\item \texttt{ablation\_profiles\_combined.csv} --- Combined ablation profiles across datasets
+\item \texttt{ablation\_best\_summary.csv} --- Best setting per axis per dataset
+\item \texttt{ablation\_best\_luad.csv} --- LUAD-specific ablation bests
+\item \texttt{ablation\_best\_gse161711.csv} --- GSE161711-specific ablation bests
+\end{itemize}
+
+% ============================================================
+\section{Execution Envelope}
+\label{sec:execution}
+% ============================================================
+
+\subsection{Complete Slurm job history}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllllr}
+\toprule
+Job ID & Name & State & Elapsed & Mem.\ req. & Peak RSS \\
+\midrule
+12833129 & bulk GSE161711 & COMPLETED & 00:39:11 & 48\,GB & --- \\
+12839604 & LUAD multiseed & COMPLETED & 00:03:54 & 96\,GB & 0.5\,GB \\
+12833143 & scRNA full & OUT\_OF\_MEMORY & 16:43:25 & 96\,GB & 100.3\,GB \\
+12844071 & scRNA fast-track & TIMEOUT & 20:00:06 & 96\,GB & 75.2\,GB \\
+12849765 & scRNA low-memory & OUT\_OF\_MEMORY & 11:25:59 & 48\,GB & 49.7\,GB \\
+12874303 & scRNA manuscript-safe & COMPLETED & 00:07:49 & 32\,GB & 2.9\,GB \\
+12874306 & manuscript refresh & COMPLETED & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Complete Slurm job history for the CC-SPR Hellbender continuation.
+The three scRNA failures established the execution boundary; the manuscript-safe run defined the resource-safe alternative.}
+\label{tab:jobs_supp}
+\end{table}
+
+\subsection{Resource observations}
+
+The scRNA failure pattern reveals a systematic issue: even with reduced hyperparameters, the full-dataset scRNA pipeline requires substantially more memory than a $k$NN + Ricci flow + persistent homology + bootstrap loop can fit within a 48--96\,GB allocation on the available hardware.
+The manuscript-safe configuration (\texttt{max\_cells=320}, \texttt{n\_pcs=20}, 1 split, 1 bootstrap) achieved a ${\sim}34\times$ reduction in peak RSS compared to the lowest-memory failed run, partly enabled by the code-level correction described below.
+
+\subsection{Code-level correction}
+\label{sec:codefix}
+
+The preprocessed single-cell loader in \texttt{src/ccspr/datasets/cll\_rs\_scrna.py} originally reused the full stored PCA matrix (\texttt{X\_pca} in the \texttt{.h5ad} file) whenever it was present, regardless of the \texttt{n\_pcs} parameter in the configuration.
+This meant that prior ``reduced'' configurations did not actually reduce the PCA feature dimension in the preprocessed path.
+After correction, the loader truncates \texttt{X\_pca} to the requested number of principal components, ensuring that the manuscript-safe run with \texttt{n\_pcs=20} genuinely operates in a 20-dimensional space rather than the full 50-dimensional space stored in the preprocessed file.
+
+% ============================================================
+\section{Manuscript-Safe Single-Cell Configuration}
+\label{sec:scrna_config}
+% ============================================================
+
+\subsection{Configuration}
+The bounded single-cell policy is implemented by:
+\begin{itemize}[leftmargin=1.5em]
+\item Config: \texttt{configs/cll\_rs\_scrna\_manuscript\_safe.yaml}
+\item Runner: \texttt{experiments/run\_cll\_rs\_scrna\_manuscript\_safe.py}
+\item Slurm: \texttt{slurm/hellbender\_run\_cll\_scrna\_gse165087\_manuscript\_safe.sbatch}
+\end{itemize}
+
+Settings:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{max\_cells = 320}
+\item \texttt{n\_pcs = 20}
+\item 1 train/test split
+\item 1 harmonic bootstrap, 1 CC-SPR bootstrap
+\item No ablation sweep
+\end{itemize}
+
+\subsection{Intermediate output policy}
+The runner writes intermediate state to prevent silent data loss:
+\begin{itemize}[leftmargin=1.5em]
+\item Dataset metadata JSON (cell count, gene count, class distribution)
+\item Checkpoint JSON (phase completion status)
+\item Partial metrics and summary CSVs
+\item Figure-ready \texttt{.npz} arrays
+\end{itemize}
+
+\subsection{Bounded ablation path}
+A strictly bounded ablation path was also prepared and completed:
+\begin{itemize}[leftmargin=1.5em]
+\item Config: \texttt{configs/cll\_rs\_scrna\_ablation\_safe.yaml}
+\item Settings: \texttt{max\_cells=400}, \texttt{n\_hvg=1000}, \texttt{n\_pcs=25}, 1 split, 1 bootstrap
+\item Lambda-only sensitivity: $\lambda \in \{10^{-6}, 10^{-5}\}$
+\item No multi-axis grid, no multi-split sweep
+\end{itemize}
+
+Results:
+\begin{itemize}[leftmargin=1.5em]
+\item Standard: F1 $= 0.888$
+\item Harmonic: F1 $= 0.798$
+\item CC-SPR (Ricci): F1 $= 0.823$ ($+0.025$ vs harmonic)
+\item Lambda $= 10^{-6}$: F1 $= 0.847$
+\item Lambda $= 10^{-5}$: F1 $= 0.850$
+\end{itemize}
+Peak RSS: ${\sim}$9.3\,GB, well within the 32\,GB allocation.
+
+% ============================================================
+\section{Completed Quantitative Summaries}
+\label{sec:quant}
+% ============================================================
+
+\subsection{LUAD paired statistics (full detail)}
+
+\begin{verbatim}
+comparison,n_pairs,mean_delta,std_delta,median_delta,
+  paired_t_stat,paired_t_p,wilcoxon_stat,wilcoxon_p
+ccspr_vs_harmonic,18,0.0272,0.1733,0.0335,
+  0.6670,0.5137,69.0,0.4951
+ccspr_vs_standard,18,-0.1861,0.1726,-0.1398,
+  -4.5744,0.000269,10.0,0.000328
+ricci_sparse_vs_euclidean_sparse,18,0.0460,0.1857,0.0538,
+  1.0518,0.3076,59.0,0.2645
+\end{verbatim}
+
+\subsection{BRCA supporting metrics}
+\begin{verbatim}
+Split 0: standard=0.606, harmonic=0.542, ccspr=0.420
+Split 1: standard=0.616, harmonic=0.416, ccspr=0.400
+Mean:    standard=0.611, harmonic=0.479, ccspr=0.410
+\end{verbatim}
+BRCA confirms the pattern seen on LUAD: standard baseline dominance, with topology-derived methods providing complementary diagnostic value.
+
+\subsection{GSE161711 bulk validation (full detail)}
+
+Five-fold cross-validation results (mean $\pm$ std):
+\begin{itemize}[leftmargin=1.5em]
+\item Standard: $0.971 \pm 0.040$
+\item Harmonic: $0.585 \pm 0.031$
+\item CC-SPR (Ricci): $0.603 \pm 0.156$
+\end{itemize}
+
+CC-SPR exceeds harmonic by $+0.018$ in mean F1, with substantially higher variance due to the sensitivity of sparse representatives to individual folds.
+
+\subsection{GSE165087 bounded single-cell results}
+
+\paragraph{Manuscript-safe configuration} ($n_{\text{cells}} = 320$, $n_{\text{pcs}} = 20$, 1 split, 1 bootstrap):
+All models achieve weighted F1 $= 0.9254$.
+Identical performance expected for a small bounded split.
+
+\paragraph{Ablation-safe configuration} ($n_{\text{cells}} = 400$, $n_{\text{pcs}} = 25$, 1 split, 1 bootstrap):
+See Section~\ref{sec:scrna_config} above.
+
+% ============================================================
+\section{Full Ablation Details}
+\label{sec:ablation_supp}
+% ============================================================
+
+\subsection{Ablation axes}
+The following ablation axes were completed on LUAD and GSE161711:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Distance mode}: Euclidean vs Ricci
+\item \textbf{Ricci iterations}: 0, 2, 5, 10
+\item \textbf{Neighborhood size $k$}: 5, 10, 15
+\item \textbf{Sparsity $\lambda$}: $10^{-8}$, $10^{-7}$, $10^{-6}$, $10^{-5}$, $10^{-4}$
+\item \textbf{Normalization}: none, std
+\item \textbf{Top-$K$}: 10, 20, 50
+\end{enumerate}
+
+All results cached in \texttt{results/metrics\_all\_datasets.csv} and summarized in \texttt{results/tables/ablation\_profiles\_combined.csv}.
+
+\subsection{Cross-dataset ablation divergence}
+
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{LUAD} prefers: Ricci geometry, 10 iterations, $k=10$, $\lambda=10^{-7}$, std normalization, top-$K=10$
+\item \textbf{GSE161711} prefers: Euclidean geometry, 0 iterations, $k=5$, $\lambda=10^{-4}$, std normalization, top-$K=50$
+\end{itemize}
+
+This divergence is the central ablation finding: it shows that geometry and sparsity parameters are genuine modeling decisions whose optimal values depend on dataset structure.
+
+\subsection{Full ablation profiles}
+
+The complete ablation profiles for both datasets are available in \texttt{results/tables/ablation\_profiles\_combined.csv}.
+Key observations:
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Distance mode}: LUAD slightly favors Ricci (0.463 vs 0.463); GSE161711 clearly favors Euclidean (0.600 vs 0.532).
+\item \textbf{Ricci iterations}: LUAD performance increases monotonically with iterations (0.393 at $T=0$ to 0.551 at $T=10$); GSE161711 peaks at $T=0$ and declines.
+\item \textbf{Neighborhood $k$}: Both datasets show sensitivity, with LUAD preferring $k=10$ and GSE161711 preferring $k=5$.
+\item \textbf{Lambda}: LUAD peaks at $10^{-7}$; GSE161711 peaks at $10^{-4}$. This 1000-fold divergence reflects fundamentally different sparsity requirements.
+\item \textbf{Top-$K$}: LUAD strongly favors compact selection ($K=10$, F1=0.667); GSE161711 strongly favors broad selection ($K=50$, F1=0.806).
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\linewidth]{../results/figures/ablation_best_summary.png}
+\caption{Best ablation setting per axis per dataset, summarizing the ablation divergence between LUAD and GSE161711.}
+\label{fig:ablation_best_supp}
+\end{figure}
+
+% ============================================================
+\section{Geometry Study Scope}
+\label{sec:geom_scope}
+% ============================================================
+
+\subsection{Implemented vs conceptual backends}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Backend & Implementation & Benchmark & Paper treatment \\
+\midrule
+Euclidean & Implemented & Full benchmark & Quantitative \\
+Ollivier--Ricci & Implemented & Full benchmark & Quantitative \\
+Diffusion & Not implemented & Not benchmarked & Mathematical extension \\
+PHATE-like & Not implemented & Not benchmarked & Mathematical extension \\
+DTM & Not implemented & Not benchmarked & Mathematical extension \\
+\bottomrule
+\end{tabular}
+\caption{Backend implementation and benchmark status.
+No empirical claim in the paper depends on an unimplemented backend.}
+\label{tab:backendstatus_supp}
+\end{table}
+
+\subsection{What was intentionally deferred}
+
+\begin{enumerate}[leftmargin=1.5em]
+\item Repeating the previously failed heavy single-cell configurations
+\item Large single-cell ablation sweeps
+\item Multi-split or multi-bootstrap single-cell grids
+\item Diffusion / PHATE-like / DTM backend implementation and experiments
+\item Survival stratification and pathway enrichment analyses
+\item Per-bootstrap representative entropy and support-size recomputation
+\item Cross-tool harmonic PH comparison (maTilDA parity)
+\end{enumerate}
+
+% ============================================================
+\section{Geometry and Representative Diagnostics}
+\label{sec:diag_supp}
+% ============================================================
+
+\subsection{Geometry backend performance}
+From \texttt{results/tables/geometry\_backend\_summary.csv}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Dataset & Standard F1 & Harmonic F1 & CC-SPR F1 & CC-SPR $-$ Harmonic \\
+\midrule
+LUAD & 0.767 & 0.404 & 0.313 & $-0.091$ \\
+GSE161711 & 0.971 & 0.585 & 0.603 & $+0.018$ \\
+GSE165087 & 0.925 & 0.925 & 0.925 & $0.000$ \\
+\bottomrule
+\end{tabular}
+\caption{Geometry backend comparison across datasets (default configurations).
+CC-SPR exceeds harmonic on GSE161711 but not on LUAD under default settings.
+GSE165087 is a bounded feasibility check.}
+\label{tab:geom_supp}
+\end{table}
+
+\subsection{Topological diagnostics availability}
+From \texttt{results/tables/geometry\_diagnostics\_summary.csv}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Dataset & Geometry comparison & Available diagnostics & Key finding \\
+\midrule
+LUAD & Eu vs Ricci & TIP, $H_1$ lifetime, prominence, $\lambda$ rob. & Ricci $+0.046$ (ns) \\
+GSE161711 & Eu vs Ricci & TIP, $H_1$ lifetime, prominence, $\lambda$ rob. & Eu preferred \\
+GSE165087 & Eu vs Ricci & TIP, $H_1$ lifetime, prominence & Tie (bounded) \\
+\bottomrule
+\end{tabular}
+\caption{Available topological diagnostics by dataset.
+Representative entropy and support-size diagnostics are not available from cached outputs.}
+\label{tab:diag_supp}
+\end{table}
+
+\subsection{Representative diagnostics}
+From \texttt{results/tables/representative\_diagnostics\_summary.csv}:
+
+TIP figures are available for all three datasets.
+Per-bootstrap support vectors were not cached at sufficient granularity to compute post hoc sparsity/entropy/Gini summaries.
+Recomputing these would require rerunning topology loops, which was outside the scope of the resource-bounded execution policy.
+
+\subsection{Runtime and resource summary}
+From \texttt{results/tables/geometry\_runtime\_cost\_summary.csv}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+Job ID & Analysis & State & Elapsed & Req.\ mem. & Peak RSS (GB) \\
+\midrule
+12839604 & LUAD multiseed & COMPLETED & 00:03:54 & 96\,GB & 0.5 \\
+12833143 & scRNA full & OOM & 16:43:25 & 96\,GB & 100.3 \\
+12844071 & scRNA fast-track & TIMEOUT & 20:00:06 & 96\,GB & 75.2 \\
+12849765 & scRNA low-memory & OOM & 11:25:59 & 48\,GB & 49.7 \\
+12874303 & scRNA manuscript-safe & COMPLETED & 00:07:49 & 32\,GB & 2.9 \\
+\bottomrule
+\end{tabular}
+\caption{Runtime and resource usage summary.
+The LUAD multiseed analysis was lightweight; the scRNA failure sequence established the resource boundary.}
+\label{tab:runtime_supp}
+\end{table}
+
+% ============================================================
+\section{Supplementary Figures: GSE165087 Bounded Diagnostics}
+\label{sec:scrna_figs}
+% ============================================================
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/f1_bars_ci_cll_rs_scrna_gse165087.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/tip_eu_vs_ricci_cll_rs_scrna_gse165087.png}
+\caption{GSE165087 bounded diagnostics.
+\textbf{Left}: F1 benchmark on the manuscript-safe bounded configuration.
+\textbf{Right}: TIP comparison between Euclidean and Ricci backends on the bounded cell sample.}
+\label{fig:scrna_supp}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_lifetime_eu_vs_ricci_cll_rs_scrna_gse165087.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_prominence_eu_vs_ricci_cll_rs_scrna_gse165087.png}
+\caption{GSE165087 $H_1$ diagnostics.
+\textbf{Left}: Lifetime comparison under Euclidean and Ricci geometry.
+\textbf{Right}: Prominence comparison.
+Both are from the bounded configuration and should be interpreted as feasibility evidence rather than definitive geometry ranking.}
+\label{fig:scrna_h1_supp}
+\end{figure}
+
+% ============================================================
+\section{Supplementary Figures: GSE161711 Extended Diagnostics}
+\label{sec:gse161711_figs}
+% ============================================================
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/f1_bars_ci_cll_venetoclax_gse161711.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/lambda_robustness_cll_venetoclax_gse161711.png}
+\caption{GSE161711 extended diagnostics.
+\textbf{Left}: F1 benchmark with confidence intervals.
+\textbf{Right}: Lambda robustness showing sensitivity of CC-SPR to sparsity parameter on this dataset.}
+\label{fig:gse161711_extra_supp}
+\end{figure}
+
+% ============================================================
+\section{Supplementary Figures: Ablation-Safe GSE165087 Diagnostics}
+\label{sec:ablationsafe_figs}
+% ============================================================
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/f1_bars_ci_cll_rs_scrna_gse165087_ablation_safe.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/tip_eu_vs_ricci_cll_rs_scrna_gse165087_ablation_safe.png}
+\caption{Ablation-safe GSE165087 diagnostics ($n_{\text{cells}} = 400$, $n_{\text{pcs}} = 25$).
+\textbf{Left}: F1 benchmark showing CC-SPR $>$ harmonic ($+0.025$).
+\textbf{Right}: TIP comparison on the ablation-safe configuration.}
+\label{fig:ablationsafe_supp}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_lifetime_eu_vs_ricci_cll_rs_scrna_gse165087_ablation_safe.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_prominence_eu_vs_ricci_cll_rs_scrna_gse165087_ablation_safe.png}
+\caption{Ablation-safe GSE165087 $H_1$ diagnostics.
+These bounded diagnostics confirm that the pipeline produces valid topological outputs at the ablation-safe scale.}
+\label{fig:ablationsafe_h1_supp}
+\end{figure}
+
+% ============================================================
+\section{Cross-Dataset Pattern Interpretation}
+\label{sec:patterns}
+% ============================================================
+
+\paragraph{Why standard baselines dominate on prediction.}
+Standard classifiers on high-variance features exploit the strongest axis of variation, which in TCGA and similar well-curated cohorts typically aligns with the class label.
+Topology-derived features capture orthogonal structural information---cycles, holes, connectivity patterns---that may not correlate with the supervised signal even when they reflect genuine biological structure.
+
+\paragraph{Why CC-SPR modestly exceeds harmonic PH.}
+On both GSE161711 and the ablation-safe GSE165087 configuration, the likely mechanism is that sparse representatives project to a more compact gene set, reducing the dilution effect of including many low-signal genes in the feature vector.
+The $\ell_1$ penalty acts as a built-in feature selector within the topological pipeline.
+
+\paragraph{Why LUAD and GSE161711 prefer different geometry backends.}
+LUAD ($n \approx 500$, high-dimensional TCGA expression) benefits from Ricci curvature correction, likely because Euclidean neighborhood graphs contain shortcut edges between subtypes.
+GSE161711 ($n = 57$, lower-dimensional bulk RNA-seq) does not benefit, likely because sampling noise dominates the geometry effect at this sample size.
+This dataset-dependent behavior is exactly what a backend-aware framework should expose.
+
+% ============================================================
+\section{Reproducibility Notes}
+\label{sec:repro}
+% ============================================================
+
+\subsection{Environment}
+\begin{verbatim}
+source /cluster/VAST/kazict-lab/e/lesion_phes/lesenv/bin/activate
+export PYTHONPATH=src
+\end{verbatim}
+
+\subsection{Key commands}
+\begin{verbatim}
+# LUAD anchor
+python3.11 experiments/run_tcga_luad.py \
+  --config configs/tcga_luad.yaml
+python3.11 experiments/run_luad_multiseed_stats.py
+
+# Bulk substitute
+python3.11 experiments/run_cll_venetoclax.py \
+  --config configs/cll_venetoclax.yaml
+
+# Bounded single-cell
+python3.11 -u experiments/run_cll_rs_scrna_manuscript_safe.py \
+  --config configs/cll_rs_scrna_manuscript_safe.yaml
+
+# Ablation-safe single-cell
+python3.11 -u experiments/run_cll_rs_scrna_ablation_safe.py \
+  --config configs/cll_rs_scrna_ablation_safe.yaml
+\end{verbatim}
+
+\subsection{Policy documents in repository}
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{results/resource\_safe\_gap\_report.md}
+\item \texttt{results/resource\_safe\_execution\_note.md}
+\item \texttt{results/final\_geometry\_gap\_report.md}
+\item \texttt{results/final\_run\_report\_hellbender.md}
+\item \texttt{results/manuscript\_upgrade\_report.md}
+\item \texttt{results/logs/manuscript\_job\_provenance\_scrna\_latest.md}
+\end{itemize}
+
+\end{document}

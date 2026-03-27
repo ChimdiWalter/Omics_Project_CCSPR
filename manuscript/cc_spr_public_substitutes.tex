@@ -1,0 +1,158 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{setspace}
+\setstretch{1.08}
+
+\title{CC-SPR as a Curvature-Corrected Sparse Extension of Harmonic Persistent Homology:\\Public CLL Substitute Study}
+\author{CC-SPR Reproducible Pipeline}
+\date{March 17, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We implemented a reproducible CC-SPR pipeline and evaluated it on public CLL substitutes after access limitations blocked the originally requested CLL datasets. The substitute datasets were GEO GSE161711 (bulk RNA-seq) and GSE165087 (single-cell RNA-seq), selected to retain CLL and longitudinal-treatment relevance. The pipeline includes real data ingestion, preprocessing, Euclidean and Ricci geometry options, sparse cycle representatives, TIP stability, full ablation grids, and figure/table generation. This document summarizes methods, results, limitations, and next steps under a local-scale execution profile.
+\end{abstract}
+
+\section{Context and Substitution Rationale}
+The original project framing was preserved: CC-SPR extends harmonic PH-style omics probing by combining Ricci-corrected geometry with sparse cycle representatives and TIP feature stability.
+
+Because the original CLL venetoclax matrix and controlled-access CLL/RS scRNA cohort were unavailable in this environment, we used public substitutes:
+\begin{itemize}
+\item Bulk substitute: \textbf{GSE161711}
+\item scRNA substitute: \textbf{GSE165087}
+\end{itemize}
+
+These substitutes are explicitly treated as replacements chosen for CLL modality alignment (bulk + single-cell), not as exact cohort matches.
+
+\section{Methods}
+For each split, the pipeline performs:
+\begin{enumerate}
+\item Variable-feature selection.
+\item Distance construction (Euclidean or Ricci-corrected).
+\item Persistent homology computation and dominant H1 cycle extraction.
+\item Cycle representative optimization (L2 or elastic).
+\item Projection to feature scores and TIP bootstrap aggregation.
+\item Weighted-F1 evaluation with logistic regression.
+\end{enumerate}
+
+\noindent Compared model families:
+\begin{itemize}
+\item \texttt{standard}
+\item \texttt{harmonic} (Euclidean + L2)
+\item \texttt{eu\_sparse} (Euclidean + elastic)
+\item \texttt{ccspr} (Ricci + elastic)
+\end{itemize}
+
+\noindent Full ablation grid retained:
+\begin{itemize}
+\item distance mode \{euclidean, ricci\}
+\item Ricci iterations \{0, 2, 5, 10\}
+\item k \{5, 10, 15\}
+\item lambda \{1e-8, 1e-7, 1e-6, 1e-5, 1e-4\}
+\item top-K \{10, 20, 50\}
+\item projection normalize \{none, std\}
+\end{itemize}
+
+\section{Data Construction}
+\textbf{GSE161711 bulk} was converted to:
+\begin{itemize}
+\item \texttt{data/cll\_venetoclax/processed\_matrix.tsv}
+\item \texttt{data/cll\_venetoclax/sample\_metadata.tsv}
+\end{itemize}
+
+\textbf{GSE165087 scRNA} was converted to:
+\begin{itemize}
+\item \texttt{data/cll\_rs\_scrna/raw/raw\_combined.h5ad}
+\item \texttt{data/cll\_rs\_scrna/data.h5ad}
+\item \texttt{data/cll\_rs\_scrna/sample\_metadata.tsv}
+\end{itemize}
+
+Raw and processed outputs were kept separate.
+
+\section{Results}
+\subsection{Main Benchmark}
+\begin{table}[H]
+\centering
+\caption{Weighted F1 means and 95\% CI (local-scale runs).}
+\begin{tabular}{llll}
+\toprule
+Dataset & Model & Mean F1 & 95\% CI \\
+\midrule
+GSE161711 bulk & standard & 0.8961 & 0.0404 \\
+GSE161711 bulk & harmonic & 0.4804 & 0.1107 \\
+GSE161711 bulk & eu\_sparse & 0.5885 & 0.0931 \\
+GSE161711 bulk & ccspr & 0.4818 & 0.0028 \\
+GSE165087 scRNA & standard & 0.7819 & 0.0994 \\
+GSE165087 scRNA & harmonic & 0.5214 & 0.1554 \\
+GSE165087 scRNA & eu\_sparse & 0.4704 & 0.0466 \\
+GSE165087 scRNA & ccspr & 0.4734 & 0.1438 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablation Summary}
+Observed best mean settings in these local runs:
+\begin{itemize}
+\item GSE161711 bulk: strong values at \texttt{k=15}, \texttt{top\_k=50}, \texttt{normalize=std}, \texttt{lambda=1e-4}.
+\item GSE165087 scRNA: strong values at \texttt{iters=10}, \texttt{k=5}, \texttt{top\_k=50}, \texttt{lambda=1e-7}.
+\end{itemize}
+
+\subsection{Figures}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{../results/figures/main_benchmark_public_substitutes.png}
+\caption{Main benchmark summary for public CLL substitutes.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../results/figures/ablation_panels_public_substitutes.png}
+\caption{Ablation panels across both substitute datasets.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{../results/figures/cll_venetoclax_tip_eu_vs_ricci.png}
+\includegraphics[width=0.48\textwidth]{../results/figures/cll_rs_scrna_tip_eu_vs_ricci.png}
+\caption{TIP comparison (Euclidean vs Ricci) for bulk and scRNA substitutes.}
+\end{figure}
+
+\section{Limitations}
+\begin{enumerate}
+\item The substitutes are biologically aligned but are not the original requested cohorts.
+\item Current scRNA results are local-scale for feasibility; full-scale reruns are recommended.
+\item Current split/boot settings prioritize reproducible local completion over maximum statistical power.
+\end{enumerate}
+
+\section{Future Work}
+\begin{enumerate}
+\item Full-scale reruns on larger cell budgets and higher bootstrap counts.
+\item Patient/timepoint-level endpoint expansion.
+\item Explicit R/maTilDA parity benchmarking in final tables.
+\item Multi-seed repeated evaluation and nested cross-validation.
+\end{enumerate}
+
+\section{Reproducibility}
+Core commands:
+\begin{verbatim}
+source ~/.venvs/lesegenv/bin/activate
+export PYTHONPATH=src
+export MPLCONFIGDIR=/tmp/matplotlib
+export NUMBA_DISABLE_COVERAGE=1
+export NUMBA_CACHE_DIR=/tmp/numba_cache
+
+python3 scripts/download_cll_venetoclax.py --root data/cll_venetoclax
+python3 scripts/download_cll_rs_scrna.py --root data/cll_rs_scrna --max-cells-raw 40000 --max-cells-processed 12000 --seed 42
+python3 experiments/run_cll_venetoclax.py --config configs/cll_venetoclax.yaml
+python3 experiments/run_cll_rs_scrna.py --config configs/cll_rs_scrna.yaml
+python3 experiments/aggregate_public_substitutes.py
+\end{verbatim}
+
+\end{document}

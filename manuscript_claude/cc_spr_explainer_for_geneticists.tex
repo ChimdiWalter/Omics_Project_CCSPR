@@ -1,0 +1,980 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{array}
+\captionsetup{font=small}
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+% Simple boxed environments (minimal package dependencies)
+\makeatletter
+\newenvironment{mathbox}{%
+  \par\vspace{8pt}\noindent\fboxrule=1pt\fboxsep=8pt%
+  \begin{lrbox}{\@tempboxa}\begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+  \small\textbf{[Math Intuition]}\ }%
+  {\end{minipage}\end{lrbox}\colorbox{white}{\fcolorbox{blue!40!black}{white}{\usebox{\@tempboxa}}}\par\vspace{8pt}}
+
+\newenvironment{biobox}{%
+  \par\vspace{8pt}\noindent\fboxrule=1pt\fboxsep=8pt%
+  \begin{lrbox}{\@tempboxa}\begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule}}%
+  {\end{minipage}\end{lrbox}\fcolorbox{green!40!black}{white}{\usebox{\@tempboxa}}\par\vspace{8pt}}
+
+\newenvironment{keybox}{%
+  \par\vspace{8pt}\noindent\fboxrule=1.5pt\fboxsep=8pt%
+  \begin{lrbox}{\@tempboxa}\begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule}}%
+  {\end{minipage}\end{lrbox}\fcolorbox{black}{white}{\usebox{\@tempboxa}}\par\vspace{8pt}}
+\makeatother
+
+\title{\Large\textbf{Understanding CC-SPR}\\[6pt]
+\large A Biology-Facing Explanation of a Geometry-Aware\\Topological Method for Omics Data\\[12pt]
+\normalsize\textit{An explainer companion to the CC-SPR manuscript}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\vspace{-1em}
+
+\begin{keybox}
+\textbf{What this document is.}
+This is a standalone explainer written for geneticists, molecular biologists, and computational biologists.
+It explains the CC-SPR method---what it does, why it was built, how it works, and what the results mean---using biologically grounded language.
+It is not a replacement for the main manuscript; it is a companion that makes the manuscript's ideas accessible without requiring a background in algebraic topology or differential geometry.
+
+\medskip
+\textbf{No new results appear here.} Every claim is drawn from the existing manuscript and its completed experiments.
+\end{keybox}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Executive Summary}
+\label{sec:executive}
+% ============================================================
+
+Modern omics experiments produce high-dimensional data in which disease subtypes, cellular states, and regulatory programs create geometric structure---clusters, trajectories, loops, and bridges.
+\textbf{Persistent homology} is a mathematical tool that detects such structure at multiple scales and distinguishes robust features from noise.
+However, standard persistent homology tells you \emph{that} a structural feature exists, not \emph{which genes} drive it.
+
+\textbf{Harmonic persistent homology}, introduced mathematically by Basu and Cox (2024) and applied to omics by Gurnari et al.\ (2025), closes part of this gap: it identifies a ``representative cycle'' for each topological feature and projects it back to gene space, creating a bridge from shape to biology.
+
+\textbf{CC-SPR} (Cycle-Consistent Sparse Persistent Representatives) extends this approach in two ways:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Sparse representatives.} Instead of spreading signal across hundreds of genes (as the harmonic method does), CC-SPR concentrates it onto a compact gene set---more like a focused candidate module than a diffuse background signal.
+\item \textbf{Geometry-aware backends.} Instead of assuming that standard Euclidean distance is the right way to measure similarity between samples, CC-SPR lets you choose from five different ``geometry backends'' (Euclidean, Ricci curvature, diffusion, PHATE-like, distance-to-measure) and compare how each one changes the biological conclusions.
+\end{enumerate}
+
+\begin{keybox}
+\textbf{What a geneticist should take away:}
+\begin{itemize}[leftmargin=1em]
+\item CC-SPR is a method for finding compact sets of genes associated with topological structure (like loops or transitions) in omics data.
+\item It does not replace standard classifiers for prediction---standard baselines still win on raw accuracy.
+\item Its value is in \emph{interpretability}: it tells you which genes are repeatedly implicated in a structural signal, and whether that answer changes when you measure sample similarity differently.
+\item The method has been tested on three cancer genomics datasets (LUAD, CLL bulk, CLL single-cell) with five geometry backends.
+\item The key finding is that the ``best'' geometry depends on the dataset, which means geometry is a genuine analytical choice, not something you can ignore.
+\end{itemize}
+\end{keybox}
+
+% ============================================================
+\section{Background: What Gurnari et al.\ Did}
+\label{sec:gurnari}
+% ============================================================
+
+\subsection{The problem: topology finds structure but loses gene identity}
+
+Persistent homology has been applied to gene expression, protein structure, tumor microenvironments, single-cell trajectories, and more.
+It works by building a network of relationships among samples (patients, cells) at progressively looser similarity thresholds.
+As the threshold relaxes, topological features---connected components (clusters), loops, voids---appear and disappear.
+Features that persist across many thresholds are considered robust; short-lived features are likely noise.
+
+The output is a ``barcode'': a set of intervals, each representing one topological feature and how long it lasts.
+Barcodes are powerful summaries, but they have a limitation: they tell you \emph{that} a loop exists, but not \emph{which patients} form the loop or \emph{which genes} drive it.
+
+\subsection{The Gurnari solution: harmonic representatives}
+
+Gurnari et al.\ (2025) addressed this by computing a \textbf{harmonic representative} for each persistent feature.
+A representative is a specific set of sample-to-sample relationships (edges in the network) that ``traces out'' the topological feature.
+The harmonic representative is the smoothest such tracing---it minimizes a squared-energy criterion over all possible ways of drawing the cycle.
+
+Once you have a representative (a weighted set of edges between samples), you can project it back through the data matrix to ask: \emph{which genes vary most along the edges that form this cycle?}
+This projection creates a gene-level importance score for each topological feature.
+
+\begin{biobox}
+\textbf{Biology translation:} Imagine a loop in patient space connecting three tumor subtypes through transitional patients.
+The harmonic representative identifies which patient-pairs form this loop.
+Projecting those patient-pairs back to gene space reveals which genes change most across the transitions---candidate drivers of the subtype structure.
+\end{biobox}
+
+\subsection{Why this was an important step}
+
+Before Gurnari et al., persistent homology in omics was largely a ``shape descriptor''---useful for comparing datasets or classifying patients based on global topology, but not for identifying specific genes.
+By adding the representative-to-gene projection, they turned persistent homology into a \textbf{feature attribution tool}: a way to ask which genes are responsible for a topological signal.
+
+% ============================================================
+\section{What Problem Remained After the Gurnari Paper}
+\label{sec:gap}
+% ============================================================
+
+The harmonic approach was an important conceptual advance, but two practical limitations remained.
+
+\subsection{Limitation 1: diffuse gene attribution}
+
+The harmonic representative minimizes squared energy, which means it spreads weight broadly across many edges.
+In omics terms, this produces a gene-importance vector in which hundreds of genes receive similar, small weights.
+When you run pathway analysis on such a diffuse list, the results are ambiguous: many pathways are weakly implicated, but none stands out clearly.
+
+\begin{biobox}
+\textbf{Analogy:} Imagine running a differential expression analysis that returns 2{,}000 genes at $p < 0.05$ with similar effect sizes.
+The list is technically correct, but it is hard to act on.
+You would prefer a shorter, more focused list of candidate genes.
+The same problem applies to harmonic representatives: they are correct but diffuse.
+\end{biobox}
+
+\subsection{Limitation 2: one geometry fits all}
+
+The standard pipeline uses Euclidean distance (or PCA-projected Euclidean distance) to measure similarity between samples.
+Euclidean distance treats all directions equally and does not adapt to local density, curvature, or manifold structure.
+
+In many biological datasets, Euclidean distance is too rigid:
+\begin{itemize}[leftmargin=1.5em]
+\item In tumor data with heterogeneous subtypes, Euclidean neighborhoods may create ``shortcut'' connections between biologically distinct populations.
+\item In single-cell data with continuous trajectories, Euclidean distance does not respect the intrinsic geometry of the differentiation path.
+\item In datasets with outliers or batch effects, Euclidean distance can be dominated by technical noise.
+\end{itemize}
+
+Different ways of measuring distance can produce different topological features, different representatives, and different gene attributions.
+If the biological conclusions change when you change the distance, that is important to know---but the harmonic framework did not provide a way to test this.
+
+\subsection{Stability was not the main emphasis}
+
+The Gurnari paper focused on demonstrating the concept of representative-to-gene projection.
+It did not systematically assess how stable the gene attributions are under resampling (bootstrap) or how they change under different distance assumptions.
+For a method to be useful in a genetics or biomarker-discovery setting, stability matters: you want to know that the same genes come up repeatedly, not just in one particular sample split.
+
+% ============================================================
+\section{What CC-SPR Is Trying to Solve}
+\label{sec:whatccspr}
+% ============================================================
+
+CC-SPR addresses both limitations within the same pipeline architecture that Gurnari et al.\ established.
+
+\subsection{Idea 1: sparse representatives instead of diffuse ones}
+
+Instead of minimizing only the squared energy (which spreads weight broadly), CC-SPR adds a sparsity penalty that drives small edge weights to zero.
+The result is a representative that concentrates its weight on a smaller number of edges.
+When projected to gene space, this produces a more focused gene set---more like a candidate module than a genome-wide background signal.
+
+\begin{biobox}
+\textbf{Biological meaning:} Sparse representatives yield sharper candidate gene modules.
+Instead of 200 genes at similar low weights, you might get 15--50 genes with high weights.
+This compact set is more amenable to pathway enrichment, more interpretable as a regulatory module, and more testable as a biomarker panel.
+\end{biobox}
+
+\subsection{Idea 2: geometry-aware backends instead of a fixed assumption}
+
+CC-SPR treats the distance metric as a \emph{selectable parameter}---a ``backend'' that you can swap in and out.
+Five backends are implemented:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Euclidean} (baseline): standard distance in PCA space.
+\item \textbf{Ricci curvature}: adjusts distances based on local geometry; upweights ``bridge'' edges between communities.
+\item \textbf{Diffusion}: measures connectivity through random walks; denoises local perturbations.
+\item \textbf{PHATE-like}: an information-geometric distance that captures both local and global structure.
+\item \textbf{Distance-to-measure (DTM)}: a robust distance that suppresses outlier influence.
+\end{enumerate}
+
+By running the same pipeline with different backends, you can ask: \emph{Do the same genes come up regardless of geometry? Or does the gene list change?}
+If the answer is geometry-dependent, that itself is biologically informative.
+
+\subsection{Idea 3: bootstrap stability assessment (TIP)}
+
+CC-SPR introduces the \textbf{Topological Influence Profile} (TIP): for each gene, it records how often that gene appears in the top-$K$ list across bootstrap resamples.
+A gene with TIP close to 1.0 is robustly associated with the topological signal; a gene with TIP close to 0 is unstable.
+
+\begin{biobox}
+\textbf{Biological meaning:} TIP is a stability filter for topology-derived gene candidates.
+It tells you which genes are reliable and which are artifacts of a particular sample split.
+This is directly analogous to how you would use bootstrap frequency in a variable-selection setting.
+\end{biobox}
+
+% ============================================================
+\section{Intuitive Explanation of the Method}
+\label{sec:intuitive}
+% ============================================================
+
+Here is how CC-SPR works, step by step, without equations.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Start with an omics matrix.}
+Rows are samples (patients or cells); columns are features (genes or principal components).
+
+\item \textbf{Choose a geometry backend.}
+Pick one of the five distance measures (Euclidean, Ricci, diffusion, PHATE-like, DTM).
+Each one produces a different distance matrix---a different view of how similar each pair of samples is.
+
+\item \textbf{Build a network of sample relationships.}
+Connect each sample to its $k$ nearest neighbors under the chosen distance.
+This creates a weighted graph where edges represent sample-to-sample similarity.
+
+\item \textbf{Grow the network at increasing thresholds.}
+Gradually relax the distance threshold, adding longer-range connections.
+At each threshold, record what topological features (clusters, loops) exist.
+Features that persist across many thresholds are considered robust.
+
+\item \textbf{Select the most persistent loop.}
+Focus on the longest-lived loop ($H_1$ feature) in the barcode.
+This is the most robust cyclic structure in the data---potentially corresponding to a subtype transition, a regulatory circuit, or a manifold-like organization.
+
+\item \textbf{Find a sparse representative for that loop.}
+Among all the ways you could ``draw'' this loop using edges in the network, find the one that uses the fewest edges while still faithfully representing the topological feature.
+This is the sparse representative.
+
+\item \textbf{Project back to genes.}
+Each edge in the representative connects two samples.
+By looking at which genes differ most across these edges, you get a gene-level importance score.
+Because the representative is sparse, this score is concentrated on a small number of genes.
+
+\item \textbf{Repeat with bootstrap resampling.}
+Resample the data multiple times, repeat the entire pipeline, and record which genes appear in the top-$K$ list each time.
+The fraction of times each gene appears is its TIP score.
+
+\item \textbf{Compare across geometry backends.}
+Run the whole process with each of the five backends.
+Compare the gene lists, TIP profiles, and classification performance.
+Genes that appear under all geometries are ``core signal''; genes that appear under only one geometry are ``backend-specific signal.''
+\end{enumerate}
+
+% ============================================================
+\section{Minimal Math Intuition}
+\label{sec:math}
+% ============================================================
+
+This section is optional.
+It provides gentle intuition for four key concepts.
+You do not need to understand the math to use or interpret CC-SPR results.
+
+\begin{mathbox}
+\textbf{What is a harmonic representative?}
+
+A topological loop can be ``drawn'' in many different ways using the available edges.
+The harmonic representative is the smoothest drawing---it minimizes the total squared weight.
+Think of it like finding the lowest-energy configuration of a rubber band stretched around pegs.
+The result is smooth but spread out, touching many pegs lightly.
+\end{mathbox}
+
+\begin{mathbox}
+\textbf{What is a sparse elastic representative?}
+
+CC-SPR adds a penalty for using many edges (an $\ell_1$ penalty, similar to LASSO in regression).
+This pushes the representative to use fewer edges with larger weights, rather than many edges with small weights.
+Think of it like the same rubber band, but now it is ``sticky''---it prefers to wrap tightly around a few pegs rather than touching many lightly.
+The ``elastic'' part (an $\ell_2$ penalty on a stability term) prevents the solution from becoming numerically unstable.
+Together, these form an elastic-net objective, the same mathematical structure used in penalized regression.
+\end{mathbox}
+
+\begin{mathbox}
+\textbf{What is TIP?}
+
+TIP (Topological Influence Profile) is a bootstrap selection frequency.
+For each gene, TIP records the fraction of bootstrap resamples in which that gene appeared among the top-$K$ most important features.
+TIP $= 1.0$ means the gene was selected in every resample; TIP $= 0$ means it was never selected.
+High TIP genes are stable candidates; low TIP genes are unreliable.
+This is conceptually identical to stability selection in statistics.
+\end{mathbox}
+
+\begin{mathbox}
+\textbf{What does it mean to change the backend?}
+
+The ``backend'' is the distance function used to measure how similar two samples are.
+Different backends emphasize different aspects of the data:
+\begin{itemize}[leftmargin=1em]
+\item Euclidean: straight-line distance in gene-expression space.
+\item Ricci: adjusts for local curvature---inflates distances across bottlenecks.
+\item Diffusion: measures how easily a random walk connects two samples.
+\item PHATE-like: measures information-theoretic divergence between samples' local connectivity patterns.
+\item DTM: smooths out density irregularities and suppresses outliers.
+\end{itemize}
+Changing the backend changes the distance matrix, which changes the network, which changes the topology, which changes the representative, which changes the gene list.
+The question ``does my answer depend on geometry?'' is a real scientific question, and CC-SPR provides a framework to answer it.
+\end{mathbox}
+
+% ============================================================
+\section{Geometry Backends Explained for Biologists}
+\label{sec:backends}
+% ============================================================
+
+\subsection{Euclidean (baseline)}
+
+\textbf{What it captures:} Straight-line distance in PCA-projected expression space.
+Samples that are close in the dominant axes of variation are considered similar.
+
+\textbf{When it helps:} When the biological structure aligns with variance-dominant axes---for example, when disease subtypes separate along the first few principal components.
+
+\textbf{When it may not help:} When the data has nonuniform density (e.g., many samples in one subtype, few in another), manifold-like trajectories that curve through high-dimensional space, or shortcut connections between distinct populations.
+
+\textbf{Biological intuition:} Euclidean distance is the ``default assumption.''
+It works well when the biology is simple and well-separated, but it can be misleading when the data has complex geometry.
+
+\subsection{Ricci curvature}
+
+\textbf{What it captures:} Local geometric curvature of the sample network.
+Edges that connect distinct communities (``bridge edges'') have negative curvature; edges within tight clusters have positive curvature.
+Ricci flow iteratively inflates bridge-edge distances, making it harder for shortcuts between populations to create spurious topological features.
+
+\textbf{When it helps:} When there are thin bridges between biologically distinct subpopulations in expression space---for example, transitional cells between tumor subtypes.
+By inflating these bridge distances, Ricci geometry preserves the genuine separation between subtypes.
+
+\textbf{When it may not help:} When the data geometry is already well-captured by Euclidean distance (as in the GSE161711 CLL cohort, where Euclidean substantially outperformed Ricci).
+
+\textbf{Biological intuition:} Ricci curvature asks, ``are the neighborhoods of these two samples converging (part of the same community) or diverging (a bridge between communities)?''
+It sharpens boundaries between biological states.
+
+\subsection{Diffusion}
+
+\textbf{What it captures:} Connectivity through random walks of varying length.
+Two samples are ``diffusion-close'' if a random walker can easily travel between them through the sample network, even if their straight-line distance is large.
+
+\textbf{When it helps:} When the data lies on a manifold (a curved surface in high-dimensional space)---for example, differentiation trajectories in single-cell data or continuous disease-severity gradients.
+Diffusion distance respects the intrinsic geometry of the manifold rather than cutting through empty space.
+
+\textbf{When it may not help:} When the data consists of well-separated, compact clusters with no meaningful within-cluster trajectory structure.
+
+\textbf{Biological intuition:} Diffusion distance measures how well-connected two samples are through intermediate samples.
+It naturally denoises local perturbations (dropout, measurement error) because random walks smooth over high-frequency noise.
+
+\subsection{PHATE-like (potential distance)}
+
+\textbf{What it captures:} An information-theoretic measure of how differently the local connectivity patterns of two samples explore the network.
+It is related to the PHATE visualization method commonly used in single-cell genomics.
+
+\textbf{When it helps:} When the data has branching trajectories or state transitions where loops may arise from biological cycles (cell cycles, metabolic oscillations).
+
+\textbf{When it may not help:} In the current implementation, which uses a lightweight surrogate rather than the full PHATE pipeline, the potential distance may over-smooth topological structure.
+On both LUAD and GSE161711, PHATE-like ranked last in classification and produced diffuse TIP profiles.
+
+\textbf{Biological intuition:} PHATE-like distance asks, ``do these two samples see the same local landscape of connections?''
+It captures both fine-grained local structure and coarse global organization, but may be too aggressive in smoothing for some datasets.
+
+\textbf{Caveat:} The current implementation uses a simplified version of PHATE.
+Results with the full PHATE pipeline (including multidimensional scaling) may differ.
+
+\subsection{Distance-to-measure (DTM)}
+
+\textbf{What it captures:} A density-smoothed distance that suppresses the influence of outliers and density irregularities.
+Instead of measuring distance between individual points, DTM effectively measures distance between local density estimates.
+
+\textbf{When it helps:} When the data contains technical outliers (failed library preparations, doublets in single-cell data, batch effects) or when sample density varies substantially across the biological landscape.
+
+\textbf{When it may not help:} When the data is clean and uniformly sampled, DTM's density smoothing may be unnecessary.
+
+\textbf{Biological intuition:} DTM asks, ``what is the distance between the \emph{typical} sample in this neighborhood and the \emph{typical} sample in that neighborhood?''
+By averaging over local neighborhoods, it robustly ignores isolated outlier samples.
+
+\subsection{Summary: which backend for which question?}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.2cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Backend} & \textbf{Best suited for} & \textbf{Potential limitation} \\
+\midrule
+Euclidean & Well-separated subtypes; clean, high-variance signals & Misses manifold structure; sensitive to shortcuts \\
+Ricci & Bridge/bottleneck structures between communities & Adds noise when Euclidean already works \\
+Diffusion & Manifold-like trajectories; noisy data & May miss sharp cluster boundaries \\
+PHATE-like & Branching trajectories; state transitions & May over-smooth (in current implementation) \\
+DTM & Outlier-heavy data; density-irregular datasets & Unnecessary smoothing on clean data \\
+\bottomrule
+\end{tabular}
+\caption{Quick guide to geometry backend selection for biologists.
+No single backend is universally best---this is the central empirical finding of the paper.}
+\label{tab:backendguide}
+\end{table}
+
+% ============================================================
+\section{Datasets and Biological Questions}
+\label{sec:datasets}
+% ============================================================
+
+CC-SPR was evaluated on three cancer genomics datasets, each serving a distinct role.
+
+\subsection{TCGA-LUAD (lung adenocarcinoma)}
+
+\textbf{What it is:} Bulk RNA-seq from The Cancer Genome Atlas, subsampled to 60 patients with approximately 20{,}000 genes.
+
+\textbf{Biological question:} LUAD has well-characterized molecular subtypes (TRU, PI, PP) that define the dominant variance structure in expression space.
+The question is whether topology detects structure beyond what simple variance-based classification captures---such as transitional states between subtypes, loop-like regulatory programs, or subtype boundaries that are geometry-sensitive.
+
+\textbf{Role in the study:} Anchor benchmark.
+This is the dataset with the most extensive evaluation: multiseed paired statistics across 18 splits, full five-backend geometry comparison, and ablation analysis.
+
+\textbf{Why it matters:} LUAD is among the most studied cancer types in genomics.
+If a method cannot produce interpretable, stable results on LUAD, it is unlikely to be useful elsewhere.
+
+\subsection{GSE161711 (CLL / venetoclax bulk RNA-seq)}
+
+\textbf{What it is:} Bulk RNA-seq from 96 chronic lymphocytic leukemia (CLL) patients treated with venetoclax, a BCL-2 inhibitor.
+
+\textbf{Biological question:} Venetoclax resistance involves complex rewiring of apoptotic and metabolic programs---cells may upregulate alternative anti-apoptotic proteins (MCL-1, BCL-XL), shift metabolic dependencies, or activate pro-survival signaling (NF-$\kappa$B, PI3K/AKT).
+The question is whether topology detects structure in this resistance biology that differs from what standard classification finds, and whether the geometry backend affects which aspects of resistance biology are highlighted.
+
+\textbf{Role in the study:} Disease-aligned bulk validation.
+This dataset provides a biologically distinct validation setting (hematological malignancy vs.\ solid tumor) with sufficient sample size for 5-fold cross-validation.
+
+\textbf{Why it matters:} Drug resistance is a central challenge in cancer genomics.
+Methods that can identify compact gene modules associated with resistance-related structure are directly relevant to therapeutic target identification.
+
+\subsection{GSE165087 (CLL / Richter syndrome scRNA-seq)}
+
+\textbf{What it is:} Single-cell RNA-seq from CLL and Richter syndrome (RS) cells, bounded to 320 cells and 20 principal components due to computational constraints.
+
+\textbf{Biological question:} CLL-to-RS transformation involves substantial cellular heterogeneity.
+Single-cell data can reveal intra-tumor structure---cell-state transitions, cycling vs.\ quiescent populations, and subclonal variation---that is invisible in bulk data.
+
+\textbf{Role in the study:} Bounded single-cell feasibility probe.
+Three larger configurations exceeded available compute resources (out-of-memory or timeout).
+The bounded configuration demonstrates that the pipeline runs on single-cell data but does not resolve backend differences at this scale.
+
+\textbf{Why it matters:} Single-cell genomics is the frontier for studying tumor heterogeneity.
+Demonstrating that a topology-based method can operate on single-cell data---even in a bounded configuration---is a necessary first step.
+However, the results here are preliminary, not definitive.
+
+% ============================================================
+\section{What Experiments Were Done}
+\label{sec:experiments}
+% ============================================================
+
+The study design includes five types of experiments.
+No new experiments were run for this explainer; all results come from the completed manuscript.
+
+\subsection{Five-backend geometry comparison}
+
+All five geometry backends were run on all three datasets under the same pipeline.
+This is the core experiment: it asks whether changing the distance function changes the biological conclusions.
+
+\subsection{Benchmark comparison}
+
+On each dataset, CC-SPR results were compared against two baselines:
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Standard baseline:} A conventional (non-topological) classifier using high-variance genes.
+This represents what you would get without any topology.
+\item \textbf{Harmonic baseline:} The original dense harmonic representative approach.
+This represents what you would get with topology but without sparsity or geometry backends.
+\end{itemize}
+
+\subsection{Multiseed paired statistics (LUAD only)}
+
+On LUAD, the Euclidean-vs-Ricci comparison was run across 18 random train/test splits.
+Paired statistical tests (paired $t$-test, Wilcoxon signed-rank) control for split-specific variation, providing more reliable evidence than summary means alone.
+
+\subsection{Ablation analysis}
+
+Six hyperparameter axes were systematically varied on LUAD and GSE161711:
+\begin{itemize}[leftmargin=1.5em]
+\item Distance mode (which backend)
+\item Ricci iterations (how much curvature correction)
+\item $k$ (neighborhood size)
+\item $\lambda$ (sparsity strength)
+\item Normalization method
+\item Top-$K$ (how many features to select)
+\end{itemize}
+
+\subsection{Bounded single-cell validation}
+
+The pipeline was run on GSE165087 at a bounded configuration (320 cells, 20 PCs, 1 split, 1 bootstrap) with all five backends.
+
+\subsection{What the paper is and is not trying to prove}
+
+\begin{keybox}
+\textbf{The paper IS trying to show:}
+\begin{itemize}[leftmargin=1em]
+\item That sparse representatives produce more focused gene sets than dense harmonic ones.
+\item That different geometry backends produce different topological features and gene attributions.
+\item That backend ranking is dataset-dependent---no single geometry is universally best.
+\item That the method works across bulk and (bounded) single-cell data.
+\item That TIP provides a useful stability diagnostic.
+\end{itemize}
+
+\textbf{The paper is NOT trying to show:}
+\begin{itemize}[leftmargin=1em]
+\item That CC-SPR beats standard classifiers on prediction.
+\item That any particular geometry backend is always best.
+\item That topology should replace conventional analysis pipelines.
+\item That the single-cell results are comprehensive or final.
+\end{itemize}
+\end{keybox}
+
+% ============================================================
+\section{What the Ablations Mean}
+\label{sec:ablations}
+% ============================================================
+
+Ablations vary one parameter at a time to understand how the method behaves.
+They are not arbitrary knobs---each one tests a specific analytical question.
+
+\subsection{Backend (distance mode)}
+
+\textbf{What it tests:} Does the biological conclusion depend on how you measure sample similarity?
+
+\textbf{Finding:} Yes.
+LUAD prefers Ricci or DTM geometry; GSE161711 prefers Euclidean.
+This means the geometry is a real modeling choice with biological consequences.
+
+\subsection{Lambda (sparsity strength)}
+
+\textbf{What it tests:} How much should the representative be compressed?
+Higher lambda means fewer genes in the final set.
+
+\textbf{Finding:} On LUAD, lambda has no effect (the signal is naturally compact).
+On GSE161711, higher lambda slightly reduces accuracy for most backends but slightly improves it for DTM.
+This suggests that DTM's density smoothing creates a representative where additional sparsity removes noise rather than signal.
+
+\subsection{$k$ (neighborhood size)}
+
+\textbf{What it tests:} How locally or globally should the sample network be connected?
+Small $k$ means each sample connects to only a few nearest neighbors; large $k$ creates a denser network.
+
+\textbf{Finding:} LUAD prefers $k = 10$; GSE161711 prefers $k = 5$.
+This is consistent with their sample sizes and subtype structures.
+
+\subsection{Top-$K$ (feature selection threshold)}
+
+\textbf{What it tests:} How many genes should be selected from the representative projection?
+
+\textbf{Finding:} LUAD prefers compact top-$K$ ($K = 10$, achieving F1 $= 0.667$); GSE161711 prefers broad top-$K$ ($K = 50$, achieving F1 $= 0.806$).
+This reflects different disease structures: LUAD's subtype signal concentrates on fewer genes, while CLL venetoclax resistance involves more distributed transcriptomic changes.
+
+\subsection{Normalization}
+
+\textbf{What it tests:} Does the preprocessing of gene-expression values matter?
+
+\textbf{Finding:} Standard deviation normalization works best on both datasets, which is consistent with the general recommendation for PCA-based analyses.
+
+\subsection{Ricci iterations}
+
+\textbf{What it tests:} How much curvature correction should be applied?
+Zero iterations means no Ricci correction (equivalent to Euclidean); more iterations mean more aggressive boundary sharpening.
+
+\textbf{Finding:} LUAD prefers 10 iterations (more correction helps); GSE161711 prefers 0 iterations (correction hurts).
+This is the clearest single-parameter evidence for backend dependence.
+
+\subsection{Why ablations matter}
+
+\begin{biobox}
+The ablation results show that CC-SPR's parameters are not arbitrary tuning knobs---they are analytical tools for understanding the data.
+The fact that LUAD and GSE161711 prefer \emph{different} settings across \emph{every} axis is the strongest evidence that geometry and sparsity are genuine modeling decisions whose optimal values depend on dataset structure.
+A geneticist should view these parameters the way they view the choice of clustering algorithm or the number of principal components: as analytical decisions that should be justified for each dataset.
+\end{biobox}
+
+% ============================================================
+\section{Main Results and What They Mean}
+\label{sec:results}
+% ============================================================
+
+\subsection{Standard baselines still often win on raw prediction}
+
+On LUAD, the standard (non-topological) baseline achieves weighted F1 $= 0.767$, while the best CC-SPR backend (DTM) achieves $0.532$.
+On GSE161711, the standard baseline achieves $0.971$ vs.\ the best CC-SPR backend (Euclidean) at $0.748$.
+
+\begin{keybox}
+\textbf{What a biologist should conclude:}
+If your only goal is to classify patients into known subtypes, standard methods are more accurate.
+CC-SPR is not a prediction tool---it is a structure-discovery and feature-attribution tool.
+Its value lies in identifying \emph{which genes} are associated with topological structure, not in maximizing classification accuracy.
+\end{keybox}
+
+\subsection{Backend ranking is dataset-dependent}
+
+On LUAD: DTM ($0.532$) $>$ Ricci ($0.501$) $\approx$ Diffusion ($0.500$) $>$ Euclidean ($0.434$) $>$ PHATE-like ($0.355$).
+
+On GSE161711: Euclidean ($0.748$) $\gg$ DTM ($0.618$) $>$ Ricci ($0.594$) $>$ Diffusion ($0.555$) $>$ PHATE-like ($0.540$).
+
+The ranking completely reverses between datasets.
+
+\textbf{What this means:} There is no universally best geometry.
+The optimal backend depends on the data structure.
+LUAD's heterogeneous subtype landscape benefits from outlier-robust (DTM) or curvature-corrected (Ricci) geometry.
+GSE161711's more homogeneous CLL cohort is best served by simple Euclidean distance.
+
+\subsection{CC-SPR is more about interpretability than benchmark dominance}
+
+Even when CC-SPR trails standard baselines on F1, it provides three things that standard classifiers do not:
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Compact gene-set identification.}
+DTM on GSE161711 identifies only 24 genes (projected support), compared to 59--95 for other backends.
+This is a focused candidate list for follow-up.
+
+\item \textbf{Backend-dependent feature profiles.}
+By comparing TIP profiles across backends, a practitioner can identify ``core signal'' genes (selected under all geometries) vs.\ ``backend-specific signal'' genes (selected under only one geometry).
+
+\item \textbf{Topological diagnostics.}
+The $H_1$ lifetime and prominence metrics reveal how geometry changes the persistence landscape itself.
+For example, Ricci produces the longest $H_1$ lifetime on GSE161711 ($0.125$), indicating that curvature correction creates more persistent topological features---even though it does not improve classification.
+\end{enumerate}
+
+\subsection{Bounded single-cell results are feasibility-oriented}
+
+On GSE165087 (320 cells), all five backends produce identical F1 $= 0.925$.
+The bounded configuration is too tight to resolve backend differences.
+This establishes that the pipeline runs on single-cell data but does not constitute comprehensive evidence.
+
+\subsection{Lambda sensitivity is itself dataset-dependent}
+
+On LUAD, changing the sparsity parameter has no effect---the topological signal is naturally compact.
+On GSE161711, most backends lose accuracy at higher sparsity, except DTM, which gains slightly.
+
+\textbf{What this means:} The ``right'' amount of sparsity depends on the dataset and the geometry.
+This is expected behavior: different data structures have different natural sparsity levels.
+
+% ============================================================
+\section{Biological Interpretation}
+\label{sec:biology}
+% ============================================================
+
+\subsection{More concentrated candidate feature sets}
+
+The central biological contribution of CC-SPR is that it produces more focused gene-level attributions than the harmonic approach.
+A sparse representative that concentrates on 15--50 genes is more actionable than a harmonic representative that spreads across 200 genes.
+Focused gene sets are easier to:
+\begin{itemize}[leftmargin=1.5em]
+\item Test with pathway enrichment (KEGG, Reactome, MSigDB).
+\item Validate with independent experiments (qPCR, Western blot, CRISPR screens).
+\item Interpret as regulatory modules or biomarker panels.
+\item Compare across datasets or conditions.
+\end{itemize}
+
+\subsection{More explicit topology-to-gene mapping}
+
+The projection from topological representatives to gene space is explicit and traceable: you know exactly which sample-pairs formed the cycle, which edges carried the most weight, and which genes varied most across those edges.
+This transparency is valuable in a genetics setting where black-box predictions are insufficient---you need to understand \emph{why} a gene is implicated.
+
+\subsection{A way to ask whether disease structure is geometry-sensitive}
+
+Perhaps the most novel contribution for biologists is the ability to ask: \emph{does my biological conclusion depend on how I measure sample similarity?}
+
+For example, on LUAD, DTM identifies 76 candidate genes while Euclidean identifies 50---with different compositions.
+The genes shared across all five backends are robust candidates; the genes that appear only under Ricci or only under diffusion may reflect geometry-specific aspects of tumor biology (curvature-related boundary effects or diffusion-related trajectory structure).
+
+This kind of geometry-sensitivity analysis has no direct analogue in standard differential-expression or pathway-enrichment pipelines.
+
+\subsection{A framework for hypothesis generation}
+
+CC-SPR does not directly validate biological hypotheses---it generates them.
+The output is a set of candidate genes associated with topological structure under one or more geometry backends.
+These candidates can then be tested through:
+\begin{itemize}[leftmargin=1.5em]
+\item Pathway enrichment to see whether topology-derived genes cluster in known pathways.
+\item Survival stratification to test clinical relevance.
+\item Comparison with independently derived gene signatures (e.g., published subtype markers).
+\item Experimental validation in cell lines or model organisms.
+\end{itemize}
+
+These downstream analyses are explicitly identified as future work in the manuscript.
+
+% ============================================================
+\section{Comparison to the Gurnari Paper}
+\label{sec:comparison}
+% ============================================================
+
+This section provides a clear side-by-side comparison.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.5cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Aspect} & \textbf{Gurnari et al.\ (2025)} & \textbf{CC-SPR} \\
+\midrule
+Representative type & Dense harmonic ($\ell_2$) & Sparse elastic (elastic net) \\
+Gene attribution & Diffuse (many genes, similar weights) & Concentrated (fewer genes, higher weights) \\
+Distance metric & Fixed Euclidean & Selectable from 5 backends \\
+Stability assessment & Not built in & TIP (bootstrap frequency) \\
+Geometry comparison & Not possible & Core design feature \\
+Number of backends & 1 & 5 (all implemented, benchmarked) \\
+Datasets & Demonstrated on omics data & 3 cancer genomics datasets \\
+Pipeline scaffold & Filtration $\to$ PH $\to$ representative $\to$ projection & Same scaffold, extended \\
+Relationship & Parent framework & Strict extension (Gurnari is special case with $\lambda_1 = 0$, Euclidean backend) \\
+\bottomrule
+\end{tabular}
+\caption{Side-by-side comparison of Gurnari et al.\ and CC-SPR.
+CC-SPR is an extension of the Gurnari framework, not a replacement.
+Every Gurnari analysis is a special case of CC-SPR.}
+\label{tab:comparison}
+\end{table}
+
+\subsection{What stayed the same}
+
+\begin{itemize}[leftmargin=1.5em]
+\item The fundamental idea: use persistent homology to detect topological features in omics data, compute representative cycles, and project back to gene space.
+\item The pipeline architecture: distance matrix $\to$ filtration $\to$ persistent homology $\to$ representative $\to$ projection.
+\item The focus on $H_1$ features (loops) as the primary topological signal of interest.
+\item The conceptual bridge from topology to biology through representative projection.
+\end{itemize}
+
+\subsection{What changed}
+
+\begin{itemize}[leftmargin=1.5em]
+\item The representative objective: from dense $\ell_2$ (harmonic) to sparse elastic net.
+This produces more focused gene attributions.
+\item The distance assumption: from fixed Euclidean to a selectable family of five backends.
+This enables geometry-sensitivity analysis.
+\item The stability diagnostic: TIP profiles provide bootstrap-aggregated stability information that was not available in the original framework.
+\item The empirical scope: three datasets, five backends, ablation grids, and multiseed paired statistics.
+\end{itemize}
+
+\subsection{Why this is an extension, not a replacement}
+
+CC-SPR preserves the Gurnari scaffold completely.
+If you set the sparsity penalty to zero ($\lambda_1 = 0$) and use Euclidean distance, you recover exactly the Gurnari method.
+CC-SPR adds two knobs---sparsity control and geometry selection---that the practitioner can use or ignore.
+The harmonic approach remains the right choice when sparse attribution is not needed or when the dense representative is naturally compact.
+
+% ============================================================
+\section{Limitations}
+\label{sec:limitations}
+% ============================================================
+
+The manuscript is candid about its limitations, and this explainer should be equally honest.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Not a prediction-dominant method.}
+Standard non-topological baselines achieve higher classification accuracy on all datasets.
+CC-SPR's value is in interpretability and structure discovery, not prediction.
+If your primary goal is to build the best classifier, CC-SPR is not the right tool.
+
+\item \textbf{Some geometry backends are better evidenced than others.}
+Euclidean, Ricci, and DTM have the clearest empirical stories.
+Diffusion shows intermediate performance.
+PHATE-like underperforms on both datasets, which may reflect the lightweight implementation rather than a fundamental limitation of the PHATE concept.
+
+\item \textbf{Single-cell study was resource-bounded.}
+Three larger scRNA-seq configurations failed due to memory or time constraints.
+The bounded configuration (320 cells) does not resolve backend differences.
+Comprehensive single-cell evaluation remains future work.
+
+\item \textbf{No pathway enrichment was performed.}
+The paper identifies candidate gene sets but does not run them through pathway databases.
+Connecting topology-derived genes to known pathways (KEGG, Reactome, MSigDB) is a natural and important next step.
+
+\item \textbf{Biological interpretation needs downstream validation.}
+The gene sets produced by CC-SPR are hypotheses, not validated findings.
+Experimental validation (in cell lines, animal models, or independent cohorts) would be needed to confirm biological relevance.
+
+\item \textbf{Subsampled LUAD benchmark.}
+The LUAD evaluation uses 60 subsampled patients, not the full TCGA cohort ($\sim$500).
+Backend rankings may change with larger sample sizes.
+
+\item \textbf{Lambda and $k$ ranges were not exhaustively searched.}
+The ablation grids cover a reasonable range but do not constitute an exhaustive hyperparameter search.
+\end{enumerate}
+
+\begin{biobox}
+\textbf{For geneticists:} These limitations are honest descriptions of where the evidence stands.
+The method is at the ``analytical framework'' stage: the pipeline works, the diagnostics are informative, and the results are consistent---but the biological follow-up (pathway analysis, survival correlation, experimental validation) has not yet been done.
+This is normal for a methods paper; the biology comes next.
+\end{biobox}
+
+% ============================================================
+\section{Why This Matters for Genetics and Biology}
+\label{sec:whymatters}
+% ============================================================
+
+\subsection{How a geneticist might use the method}
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Identify candidate gene modules.}
+Run CC-SPR on your omics dataset with multiple geometry backends.
+The sparse representatives project to compact gene sets for each backend.
+Genes with high TIP across all backends are robust candidates for follow-up.
+
+\item \textbf{Ask whether your disease structure is geometry-sensitive.}
+Compare the gene lists, TIP profiles, and classification performance across backends.
+If the results change substantially, the geometry of your data matters---and the genes that differ between backends may reflect distinct biological mechanisms (e.g., local vs.\ global structure, density effects, bridge-mediated transitions).
+
+\item \textbf{Generate hypotheses about subtype structure.}
+The topological features detected by CC-SPR (loops, bridges, manifold organization) may correspond to subtype transitions, regulatory circuits, or heterogeneity patterns that are not visible in standard differential-expression analyses.
+
+\item \textbf{Complement (not replace) existing pipelines.}
+Use CC-SPR as an additional analysis layer alongside standard differential expression, pathway enrichment, and clustering.
+The topology-derived gene sets may identify structure that is orthogonal to variance-dominant axes.
+\end{enumerate}
+
+\subsection{What kinds of questions it is suited for}
+
+\begin{itemize}[leftmargin=1.5em]
+\item \emph{Which genes are associated with the dominant topological structure in my data?}
+\item \emph{Is this association stable under resampling?}
+\item \emph{Does the gene list change when I use a different distance metric?}
+\item \emph{Are there compact gene modules that trace topological features (loops, transitions) in sample space?}
+\item \emph{Is the topology of my data sensitive to geometry assumptions?}
+\end{itemize}
+
+\subsection{What kinds of questions it is not suited for}
+
+\begin{itemize}[leftmargin=1.5em]
+\item \emph{Which classifier gives the best prediction accuracy?} (Use standard methods.)
+\item \emph{Which gene is differentially expressed between two groups?} (Use standard DE methods.)
+\item \emph{What is the causal structure among genes?} (Use causal inference methods.)
+\item \emph{What is the best number of clusters in my data?} (Use standard clustering evaluation.)
+\end{itemize}
+
+\subsection{Why geometry-aware topology may matter in omics}
+
+Omics data is not flat.
+Tumor subtypes create clusters; differentiation paths trace manifolds; regulatory circuits create loops; microenvironment heterogeneity introduces curvature and density variation.
+All of this is geometric structure.
+
+Standard analyses often ignore this geometry, relying on Euclidean distance as a default.
+When the biology creates complex geometry---bridges between subtypes, trajectories that curve, density-irregular populations---Euclidean distance can be misleading.
+CC-SPR provides a principled way to test whether geometry matters for your specific dataset and to identify which genes are implicated under each geometric view.
+
+This is not about replacing existing tools.
+It is about adding a new analytical layer---topology-aware, geometry-sensitive, stability-assessed feature attribution---that can reveal structure invisible to standard methods.
+
+% ============================================================
+\appendix
+\section{Glossary of Terms}
+\label{sec:glossary}
+% ============================================================
+
+\begin{longtable}{p{3.5cm}p{9cm}}
+\toprule
+\textbf{Term} & \textbf{Definition} \\
+\midrule
+\endhead
+Backend & The distance function used to measure sample-to-sample similarity. CC-SPR implements five: Euclidean, Ricci, diffusion, PHATE-like, DTM. \\
+\midrule
+Barcode & The output of persistent homology: a set of intervals, each representing one topological feature and the range of scales at which it exists. \\
+\midrule
+Bootstrap & A statistical resampling technique: draw $n$ samples with replacement from the original $n$, repeat the analysis, and assess variability. \\
+\midrule
+CC-SPR & Cycle-Consistent Sparse Persistent Representatives. The method described in the manuscript. \\
+\midrule
+Diffusion distance & A distance that measures how easily a random walk connects two samples through the data network. \\
+\midrule
+DTM & Distance-to-measure. A robust distance that smooths out outliers and density irregularities by averaging over local neighborhoods. \\
+\midrule
+Elastic net & A penalized regression objective combining an $\ell_1$ (LASSO) penalty for sparsity and an $\ell_2$ (ridge) penalty for stability. \\
+\midrule
+Filtration & A sequence of networks (simplicial complexes) built at increasing distance thresholds, used as input to persistent homology. \\
+\midrule
+Gini coefficient & A measure of inequality. In CC-SPR, high Gini means the representative's weight is concentrated on a few edges (desirable for interpretation). \\
+\midrule
+$H_0$ & Zeroth homology: counts connected components (clusters). \\
+\midrule
+$H_1$ & First homology: detects loops. The primary topological feature used by CC-SPR. \\
+\midrule
+Harmonic representative & The smoothest (minimum squared energy) cycle representative. Spreads weight broadly. \\
+\midrule
+Lifetime (persistence) & How long a topological feature survives across filtration scales. Longer lifetime suggests more robust signal. \\
+\midrule
+Ollivier--Ricci curvature & A measure of local geometry on a graph. Positive curvature means convergent neighborhoods; negative curvature means divergent neighborhoods (bridges, bottlenecks). \\
+\midrule
+Persistent homology & A mathematical tool that tracks topological features (clusters, loops, voids) across multiple scales and identifies which are robust. \\
+\midrule
+PHATE & Potential of Heat-diffusion for Affinity-based Trajectory Embedding. A visualization method for single-cell data; the PHATE-like backend uses a related distance. \\
+\midrule
+Prominence & How much a topological feature stands out above neighboring features. Complements lifetime as a robustness measure. \\
+\midrule
+Representative & A specific set of weighted edges that ``traces'' a topological feature. Used to project topological signal back to gene space. \\
+\midrule
+Ricci flow & An iterative process that adjusts edge distances based on local curvature, sharpening boundaries between communities. \\
+\midrule
+Sparse representative & A representative that uses few edges with large weights, rather than many edges with small weights. Produces focused gene sets. \\
+\midrule
+Support (projected) & The number of genes with nonzero weight after projecting a representative to gene space. \\
+\midrule
+TIP & Topological Influence Profile. The fraction of bootstrap resamples in which each gene is selected among the top-$K$. A stability diagnostic. \\
+\midrule
+Topology & The mathematical study of shape---specifically, properties that are preserved under continuous deformations (stretching, bending, but not tearing). \\
+\midrule
+Vietoris--Rips complex & A type of simplicial complex built from a distance threshold: connect all pairs of points within distance $\varepsilon$. \\
+\bottomrule
+\end{longtable}
+
+% ============================================================
+\section{Acronym Table}
+\label{sec:acronyms}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Acronym} & \textbf{Full name} \\
+\midrule
+CC-SPR & Cycle-Consistent Sparse Persistent Representatives \\
+CLL & Chronic lymphocytic leukemia \\
+DTM & Distance-to-measure \\
+F1 & F1 score (harmonic mean of precision and recall) \\
+HPH & Harmonic persistent homology \\
+$k$NN & $k$-nearest neighbors \\
+LUAD & Lung adenocarcinoma \\
+PCA & Principal component analysis \\
+PH & Persistent homology \\
+PHATE & Potential of Heat-diffusion for Affinity-based Trajectory Embedding \\
+RS & Richter syndrome \\
+scRNA-seq & Single-cell RNA sequencing \\
+TCGA & The Cancer Genome Atlas \\
+TDA & Topological data analysis \\
+TIP & Topological Influence Profile \\
+TRU/PI/PP & Terminal respiratory unit / Proximal-inflammatory / Proximal-proliferative (LUAD subtypes) \\
+\bottomrule
+\end{tabular}
+\caption{Acronyms used in this document.}
+\label{tab:acronyms}
+\end{table}
+
+% ============================================================
+\section{Math-to-Biology Translation Cheat Sheet}
+\label{sec:cheatsheet}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{4cm}p{8cm}}
+\toprule
+\textbf{Math concept} & \textbf{Biology translation} \\
+\midrule
+Point cloud & Your samples (patients, cells) represented as points in gene-expression space \\
+Distance matrix & A table of all pairwise sample similarities \\
+Filtration & Building a network by gradually connecting more distant samples \\
+$H_0$ bar & A cluster of similar samples (like a tumor subtype) \\
+$H_1$ bar & A loop-like relationship among samples (like a transition cycle between subtypes) \\
+Lifetime of a bar & How robust the feature is across scales---longer means more real \\
+Harmonic representative & The smoothest way to trace a loop---spreads across many genes \\
+Sparse representative & The most focused way to trace a loop---concentrates on a few genes \\
+$\ell_1$ penalty ($\lambda_1$) & A knob that controls how focused the gene set is (like LASSO in regression) \\
+TIP score of gene $j$ & How often gene $j$ is selected across bootstrap resamples---higher means more reliable \\
+Backend & The distance formula---different backends emphasize different aspects of data geometry \\
+Ricci curvature & A measure of whether two samples are in the same community (positive) or at a boundary (negative) \\
+Diffusion distance & How well-connected two samples are through intermediate samples \\
+DTM & A distance that ignores outliers by averaging over local neighborhoods \\
+Support entropy & How evenly the representative's weight is spread---low entropy means focused \\
+Gini coefficient & How unequal the weights are---high Gini means concentrated on a few genes \\
+\bottomrule
+\end{tabular}
+\caption{One-page math-to-biology translation.
+Use this as a quick reference when reading the main manuscript.}
+\label{tab:cheatsheet}
+\end{table}
+
+\vfill
+\begin{center}
+\small\textit{This explainer document accompanies the CC-SPR manuscript.\\
+It does not contain new results, altered analyses, or unsupported claims.\\
+All data, figures, and conclusions are drawn from the completed manuscript and its experiments.}
+\end{center}
+
+\end{document}

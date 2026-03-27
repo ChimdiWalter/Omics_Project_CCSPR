@@ -1,0 +1,4 @@
+dataset,backend,mean_f1,std_f1,n_splits,elapsed_sec
+Arabidopsis_root,euclidean,0.5933,0.1656,3,2839.0
+Arabidopsis_root,dtm,0.6664,0.0937,3,1717.2
+Arabidopsis_root,standard,0.9585,0.0166,3,0.0

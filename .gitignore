@@ -1,0 +1,54 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+.venv/
+
+results/
+data/
+logs/
+
+# LaTeX build artifacts
+*.pdf
+*.log
+*.aux
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Claude / AI assistant
+.claude/
+
+# Large binary files
+*.npz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prototype files (keep in project, not in git)
+cc_spr_new.py
+cc_spr_paper_final_v10.py
+new.py
+cc_spr_*.png
+README_original.md
+README_github.md

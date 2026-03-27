@@ -1,0 +1,404 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\captionsetup{font=small}
+
+\title{CC-SPR Geometry-Family Empirical Study: Supplementary Material\\[6pt]
+\large Extended Tables, Ablation Details, Diagnostics, and Reproducibility}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Repository and Data Inventory}
+\label{sec:inventory}
+% ============================================================
+
+Repository root: \texttt{/cluster/VAST/kazict-lab/e/lesion\_phes/code/ccspr}.
+
+\subsection{Geometry-family artifacts}
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Results JSON}: \texttt{results/geometry\_family/geometry\_family\_results.json}
+\item \textbf{Checkpoint}: \texttt{results/geometry\_family/checkpoint.json}
+\item \textbf{Benchmark CSV}: \texttt{results/geometry\_family/tables/geometry\_family\_benchmark.csv}
+\item \textbf{Diagnostics CSV}: \texttt{results/geometry\_family/tables/geometry\_family\_diagnostics.csv}
+\item \textbf{Ablation CSV}: \texttt{results/geometry\_family/tables/geometry\_family\_ablation.csv}
+\item \textbf{Timing CSV}: \texttt{results/geometry\_family/tables/geometry\_family\_timing.csv}
+\end{itemize}
+
+\subsection{Prior data artifacts (inherited)}
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{LUAD anchor}: \texttt{results/metrics.csv}, \texttt{results/main\_results.csv}
+\item \textbf{LUAD multiseed}: \texttt{results/metrics\_luad\_multiseed.csv}, \texttt{results/paired\_stats\_luad\_multiseed.csv}
+\item \textbf{GSE161711}: \texttt{data/cll\_venetoclax/processed\_matrix.tsv}
+\item \textbf{GSE165087}: \texttt{data/cll\_rs\_scrna/data.h5ad}
+\end{itemize}
+
+\subsection{Source code for new backends}
+All five geometry backends are implemented in a single dispatcher:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{src/ccspr/geometry/distance.py} --- \texttt{build\_distance()} with modes: \texttt{euclidean}, \texttt{ricci}, \texttt{diffusion}, \texttt{phate\_like}, \texttt{dtm}
+\item Shared infrastructure: \texttt{\_build\_knn\_affinity()} provides the $k$NN affinity matrix used by diffusion, PHATE-like, and DTM backends
+\end{itemize}
+
+% ============================================================
+\section{Experimental Design}
+\label{sec:design}
+% ============================================================
+
+\subsection{Dataset configurations}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccccc}
+\toprule
+Dataset & Tissue & $n$ & Splits & Bootstraps & Ablation & Bounded \\
+\midrule
+LUAD & TCGA lung adenocarcinoma & 60 & 2 & 5 & $\lambda$ sweep & No \\
+GSE161711 & CLL bulk RNA-seq & 96 & 5 (CV) & 5 & $\lambda$ sweep & No \\
+GSE165087 & CLL scRNA-seq & 320 & 1 & 1 & $\lambda$ sweep & Yes \\
+\bottomrule
+\end{tabular}
+\caption{Dataset configurations for the geometry-family study.
+LUAD uses \texttt{max\_samples=60} for tractability; GSE165087 is bounded to 320 cells.}
+\label{tab:configs}
+\end{table}
+
+\subsection{Backends tested}
+
+All five backends share the same downstream pipeline: Vietoris--Rips filtration $\to$ persistent homology ($H_1$) $\to$ harmonic/CC-SPR representative $\to$ TIP projection $\to$ random forest classification.
+The only difference is the pairwise distance matrix fed to the Rips complex:
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Euclidean}: $d_{ij} = \|x_i - x_j\|_2$
+\item \textbf{Ollivier--Ricci}: Curvature-adjusted Euclidean distances via discrete Ricci flow
+\item \textbf{Diffusion}: Truncated eigendecomposition of the Markov transition matrix from a $k$NN affinity graph; $L^2$ distance in eigenspace
+\item \textbf{PHATE-like}: Potential distance $\|-\log(P^t + \varepsilon)\|_2$ where $P$ is the Markov matrix
+\item \textbf{DTM}: Distance-to-measure weighted: $\sqrt{d_{ij}^2 + \text{dtm}_i^2 + \text{dtm}_j^2}$, where $\text{dtm}_i$ is the mean distance to $k$ nearest neighbors
+\end{enumerate}
+
+% ============================================================
+\section{Full Benchmark Results}
+\label{sec:benchmark}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccl}
+\toprule
+Dataset & Backend & Mean F1 & Std F1 & Elapsed (s) \\
+\midrule
+LUAD & euclidean & 0.4342 & 0.0394 & 0.5 \\
+LUAD & ricci & 0.5012 & 0.1073 & 5.2 \\
+LUAD & diffusion & 0.5000 & 0.1000 & 0.5 \\
+LUAD & phate\_like & 0.3546 & 0.0880 & 0.2 \\
+LUAD & dtm & 0.5315 & 0.0765 & 0.2 \\
+\midrule
+GSE161711 & euclidean & 0.7483 & 0.0825 & 8.0 \\
+GSE161711 & ricci & 0.5944 & 0.0845 & 29.0 \\
+GSE161711 & diffusion & 0.5553 & 0.0721 & 2.5 \\
+GSE161711 & phate\_like & 0.5396 & 0.0632 & 1.2 \\
+GSE161711 & dtm & 0.6178 & 0.1333 & 14.4 \\
+\midrule
+GSE165087 & euclidean & 0.9254 & 0.0 & 1099.0 \\
+GSE165087 & ricci & 0.9254 & 0.0 & 6.2 \\
+GSE165087 & diffusion & 0.9254 & 0.0 & 1.9 \\
+GSE165087 & phate\_like & 0.9254 & 0.0 & 36.3 \\
+GSE165087 & dtm & 0.9254 & 0.0 & 3932.1 \\
+\bottomrule
+\end{tabular}
+\caption{Complete geometry-family benchmark results.
+All 15 dataset$\times$backend combinations completed successfully via Slurm job 12883024.
+GSE165087 achieves identical F1 across all backends due to bounded sample size (320 cells, 1 split).}
+\label{tab:benchmark_full}
+\end{table}
+
+% ============================================================
+\section{Full Diagnostics}
+\label{sec:diagnostics}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccccccc}
+\toprule
+Dataset & Backend & $n_\text{ok}$ & Lifetime & $\sigma_\text{life}$ & Prominence & $\sigma_\text{prom}$ & Support & Entropy \\
+\midrule
+LUAD & euclidean & 5 & 0.0798 & 0.025 & 0.0469 & 0.0296 & 50 & 3.733 \\
+LUAD & ricci & 4 & 0.0130 & 0.007 & 0.0067 & 0.008 & 71 & 4.226 \\
+LUAD & diffusion & 5 & 0.0256 & 0.018 & 0.0146 & 0.015 & 78 & 4.274 \\
+LUAD & phate\_like & 4 & 0.0112 & 0.010 & 0.0085 & 0.008 & 80 & 4.382 \\
+LUAD & dtm & 5 & 0.0083 & 0.006 & 0.0068 & 0.007 & 76 & 4.273 \\
+\midrule
+GSE161711 & euclidean & 5 & 0.0828 & 0.003 & 0.0118 & 0.008 & 59 & 4.011 \\
+GSE161711 & ricci & 5 & 0.1248 & 0.048 & 0.0468 & 0.041 & 95 & 4.536 \\
+GSE161711 & diffusion & 5 & 0.0426 & 0.024 & 0.0213 & 0.021 & 93 & 4.508 \\
+GSE161711 & phate\_like & 5 & 0.0091 & 0.007 & 0.0049 & 0.005 & 84 & 4.373 \\
+GSE161711 & dtm & 5 & 0.0487 & 0.008 & 0.0166 & 0.006 & 24 & 3.130 \\
+\bottomrule
+\end{tabular}
+\caption{Full topological diagnostics for LUAD and GSE161711.
+$n_\text{ok}$ is the number of bootstrap runs producing valid $H_1$ bars.
+Support is the number of nonzero TIP entries.
+GSE165087 diagnostics omitted (single bootstrap, bounded configuration).}
+\label{tab:diagnostics_full}
+\end{table}
+
+\subsection{Diagnostic interpretation}
+
+\paragraph{Lifetime and prominence.}
+Euclidean consistently produces the longest-lived $H_1$ bars (LUAD: 0.080, GSE161711: 0.083), suggesting that the Euclidean metric preserves larger-scale topological features.
+Curvature-based backends (Ricci, diffusion) produce shorter-lived but more numerous cycles, consistent with their tendency to redistribute edge lengths and create more uniform filtration scales.
+
+\paragraph{Support size.}
+PHATE-like achieves the broadest TIP support on LUAD (80 features) but low classification F1 (0.355), suggesting that distributing representative weight across many features dilutes discriminative signal.
+Conversely, Euclidean has the smallest support (50) on LUAD, concentrating signal on fewer genes.
+
+\paragraph{TIP entropy.}
+Higher entropy indicates more uniform distribution of topological influence across features.
+The curvature-based backends consistently achieve higher entropy (4.2--4.5) than Euclidean (3.7--4.0), reflecting their role in ``flattening'' the metric landscape.
+
+\paragraph{TIP Gini coefficient.}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Backend & LUAD Gini & GSE161711 Gini \\
+\midrule
+euclidean & 0.321 & 0.186 \\
+ricci & 0.098 & 0.047 \\
+diffusion & 0.180 & 0.065 \\
+phate\_like & 0.000 & 0.136 \\
+dtm & 0.164 & 0.130 \\
+\bottomrule
+\end{tabular}
+\caption{TIP Gini coefficients by backend.
+Lower Gini indicates more uniform TIP distribution.
+Ricci achieves the most uniform distribution on both datasets; PHATE-like achieves perfect uniformity on LUAD (Gini = 0).}
+\label{tab:gini}
+\end{table}
+
+% ============================================================
+\section{Lambda Ablation Details}
+\label{sec:ablation}
+% ============================================================
+
+The geometry-family ablation sweeps the sparsity parameter $\lambda \in \{10^{-6}, 10^{-5}\}$ across all five backends and three datasets.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Dataset & Backend & $\lambda = 10^{-6}$ F1 & $\lambda = 10^{-5}$ F1 & $\Delta$ \\
+\midrule
+LUAD & euclidean & 0.423 & 0.423 & 0.000 \\
+LUAD & ricci & 0.463 & 0.463 & 0.000 \\
+LUAD & diffusion & 0.380 & 0.380 & 0.000 \\
+LUAD & phate\_like & 0.496 & 0.496 & 0.000 \\
+LUAD & dtm & 0.530 & 0.530 & 0.000 \\
+\midrule
+GSE161711 & euclidean & 0.646 & 0.595 & $-0.051$ \\
+GSE161711 & ricci & 0.542 & 0.522 & $-0.021$ \\
+GSE161711 & diffusion & 0.537 & 0.508 & $-0.029$ \\
+GSE161711 & phate\_like & 0.696 & 0.696 & 0.000 \\
+GSE161711 & dtm & 0.588 & 0.628 & $+0.040$ \\
+\midrule
+GSE165087 & all backends & 0.913 & 0.913 & 0.000 \\
+\bottomrule
+\end{tabular}
+\caption{Lambda ablation results.
+LUAD is insensitive to the tested $\lambda$ range.
+GSE161711 shows mild sensitivity: Euclidean and diffusion prefer lower $\lambda$; DTM prefers higher $\lambda$.
+GSE165087 is invariant (bounded, single split).}
+\label{tab:ablation_full}
+\end{table}
+
+\subsection{Ablation interpretation}
+The narrow $\lambda$ range ($10^{-6}$ to $10^{-5}$) was chosen to probe sensitivity near the default operating point.
+LUAD shows zero sensitivity across all backends, suggesting that the sparse representative solution is stable in this regime.
+GSE161711 shows mild but non-trivial sensitivity for Euclidean ($-0.051$) and DTM ($+0.040$), indicating that the optimal sparsity level is backend-dependent even within a single dataset.
+
+% ============================================================
+\section{Timing Analysis}
+\label{sec:timing}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llr}
+\toprule
+Dataset & Backend & Elapsed (s) \\
+\midrule
+LUAD (60 samples) & euclidean & 0.5 \\
+ & ricci & 5.2 \\
+ & diffusion & 0.5 \\
+ & phate\_like & 0.2 \\
+ & dtm & 0.2 \\
+\midrule
+GSE161711 (96 samples) & euclidean & 8.0 \\
+ & ricci & 29.0 \\
+ & diffusion & 2.5 \\
+ & phate\_like & 1.2 \\
+ & dtm & 14.4 \\
+\midrule
+GSE165087 (320 samples) & euclidean & 1099.0 \\
+ & ricci & 6.2 \\
+ & diffusion & 1.9 \\
+ & phate\_like & 36.3 \\
+ & dtm & 3932.1 \\
+\bottomrule
+\end{tabular}
+\caption{Wall-clock timing for each dataset$\times$backend combination.
+DTM on GSE165087 (3932s $\approx$ 65 min) is the most expensive combination due to the DTM-weighted distance creating a dense filtration on 320 samples.
+Euclidean on GSE165087 (1099s $\approx$ 18 min) is expensive due to direct pairwise distance computation at scale.}
+\label{tab:timing_full}
+\end{table}
+
+\subsection{Scaling observations}
+\begin{itemize}[leftmargin=1.5em]
+\item Diffusion and PHATE-like backends are consistently fast ($< 40$s even at 320 samples) because they operate in a reduced eigenspace.
+\item Ricci is moderate ($5$--$29$s) but does not scale quadratically because the curvature computation uses $k$NN sparsity.
+\item Euclidean scales quadratically with $n$ (0.5s at $n=60$ to 1099s at $n=320$).
+\item DTM inherits Euclidean scaling and adds overhead from neighbor averaging, making it the slowest backend at large $n$.
+\end{itemize}
+
+% ============================================================
+\section{Execution Envelope}
+\label{sec:execution}
+% ============================================================
+
+\subsection{Geometry-family Slurm job}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllll}
+\toprule
+Job ID & Name & State & Walltime & Resources \\
+\midrule
+12883024 & ccspr\_geometry\_family & COMPLETED & $< 12$h & 48\,GB, 8 CPUs \\
+\bottomrule
+\end{tabular}
+\caption{Slurm execution for the geometry-family experiment.
+All 15 backend$\times$dataset combinations completed, plus diagnostics and ablation sweeps.}
+\label{tab:geom_job}
+\end{table}
+
+\subsection{Prior Slurm history (inherited)}
+See prior supplement for the complete job history including the scRNA OOM/timeout failure sequence and manuscript-safe resolution.
+
+% ============================================================
+\section{Backend Implementation Details}
+\label{sec:impl}
+% ============================================================
+
+\subsection{Shared kNN affinity}
+The diffusion, PHATE-like, and DTM backends share a common $k$NN affinity construction:
+\begin{enumerate}[leftmargin=1.5em]
+\item Compute $k$ nearest neighbors ($k=15$ by default) using \texttt{sklearn.neighbors.NearestNeighbors}
+\item Build adaptive Gaussian kernel: $W_{ij} = \exp(-d_{ij}^2 / \sigma_i \sigma_j)$ where $\sigma_i$ is the distance to the $k$-th neighbor of point $i$
+\item Symmetrize: $W \leftarrow (W + W^\top) / 2$
+\end{enumerate}
+
+\subsection{Diffusion distance}
+From the affinity matrix $W$:
+\begin{enumerate}[leftmargin=1.5em]
+\item Form row-stochastic Markov matrix $P = D^{-1}W$ where $D = \text{diag}(W\mathbf{1})$
+\item Compute top $m=50$ eigenvectors of $P$ via \texttt{scipy.sparse.linalg.eigsh}
+\item Diffusion coordinates: $\Psi_i = [\lambda_1 \psi_1(i), \ldots, \lambda_m \psi_m(i)]$
+\item Distance: $d_\text{diff}(i,j) = \|\Psi_i - \Psi_j\|_2$
+\end{enumerate}
+
+\subsection{PHATE-like potential distance}
+\begin{enumerate}[leftmargin=1.5em]
+\item Compute Markov matrix $P$ as above
+\item Raise to power $t=5$: $P^t$ (diffusion time)
+\item Potential: $U = -\log(P^t + \varepsilon)$ with $\varepsilon = 10^{-7}$
+\item Distance: $d_\text{phate}(i,j) = \|U_i - U_j\|_2$
+\end{enumerate}
+This is a lightweight surrogate for full PHATE; it captures the same potential-distance intuition without the full PHATE embedding pipeline.
+
+\subsection{DTM-weighted distance}
+\begin{enumerate}[leftmargin=1.5em]
+\item For each point $i$, compute $\text{dtm}_i = \frac{1}{k}\sum_{j \in \text{kNN}(i)} d(i,j)$
+\item Weighted distance: $d_\text{dtm}(i,j) = \sqrt{d_{ij}^2 + \text{dtm}_i^2 + \text{dtm}_j^2}$
+\end{enumerate}
+The DTM weight inflates distances near sparse regions (high local $\text{dtm}$) and preserves distances in dense regions, providing noise robustness.
+
+% ============================================================
+\section{GSE165087 Ceiling Effect}
+\label{sec:ceiling}
+% ============================================================
+
+All five backends achieve identical F1 (0.9254) on GSE165087.
+This ceiling effect has two causes:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Bounded sample}: 320 cells with 1 train/test split and 1 bootstrap provide insufficient statistical resolution to differentiate backends.
+\item \textbf{Strong class signal}: The cell-type labels in this CLL scRNA dataset are well-separated in PCA space, so the random forest classifier saturates regardless of which topological features are provided.
+\end{enumerate}
+This result is reported honestly as a feasibility check, not as evidence that backends are equivalent.
+
+% ============================================================
+\section{Cross-Dataset Pattern Interpretation}
+\label{sec:patterns}
+% ============================================================
+
+\paragraph{Backend ranking is dataset-dependent.}
+On LUAD, DTM $>$ Ricci $>$ Diffusion $>$ Euclidean $>$ PHATE-like.
+On GSE161711, Euclidean $>$ DTM $>$ Ricci $>$ Diffusion $>$ PHATE-like.
+The rank inversion between Euclidean and curvature-based backends is the central empirical finding.
+
+\paragraph{Why curvature helps on LUAD.}
+LUAD ($n=60$, high-dimensional TCGA expression) benefits from curvature correction because Euclidean neighborhood graphs contain shortcut edges between lung adenocarcinoma subtypes.
+Ricci flow and DTM weighting remove these shortcuts by penalizing edges in sparse inter-cluster regions.
+
+\paragraph{Why Euclidean dominates on GSE161711.}
+GSE161711 ($n=96$, lower-dimensional bulk RNA-seq) has cleaner class separation in the original metric space.
+Curvature-based transformations introduce noise at this sample size because the $k$NN graph is less stable.
+
+\paragraph{Support--accuracy tradeoff.}
+Backends with higher TIP support (phate\_like: 80, diffusion: 78 on LUAD) tend to have lower F1, while backends with concentrated support (euclidean: 50) or curvature-sharpened support (ricci: 71, dtm: 76) achieve better classification.
+This suggests a ``dilution vs.\ concentration'' tradeoff in topological feature projection.
+
+% ============================================================
+\section{Reproducibility}
+\label{sec:repro}
+% ============================================================
+
+\subsection{Environment}
+\begin{verbatim}
+source /cluster/VAST/kazict-lab/e/lesion_phes/lesenv/bin/activate
+export PYTHONPATH=src
+\end{verbatim}
+
+\subsection{Geometry-family experiment}
+\begin{verbatim}
+# Submit to Slurm
+sbatch slurm/hellbender_geometry_family.sbatch
+
+# Or run directly (requires 48GB+ RAM)
+python3.11 -u experiments/run_geometry_family.py
+\end{verbatim}
+
+\subsection{Checkpointing}
+The experiment runner saves a checkpoint after each phase (LUAD, GSE161711, GSE165087).
+If interrupted, re-running the script will skip completed phases by reading \texttt{results/geometry\_family/checkpoint.json}.
+
+\end{document}

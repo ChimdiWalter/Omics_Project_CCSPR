@@ -1,0 +1,72 @@
+seed: 42
+cache_dir: data/cache
+
+output:
+  results_dir: results/geometry_paper
+  global_tables_dir: results/tables
+  global_figures_dir: results/figures
+
+datasets:
+  tcga_luad:
+    enabled: true
+    type: luad
+    root: data/tcga_luad
+    min_class_size: 10
+    max_samples: 60
+    var_genes: 500
+    n_splits: 2
+    test_size: 0.25
+  tcga_brca:
+    enabled: false
+    type: brca
+    root: data/tcga_brca
+    pca_expr: 100
+    pca_meth: 100
+    max_samples: 120
+    var_genes: 120
+    n_splits: 2
+    test_size: 0.25
+  gse161711_bulk:
+    enabled: true
+    type: cll_bulk
+    processed_matrix_path: data/cll_venetoclax/processed_matrix.tsv
+    label_col: label
+    var_genes: 500
+    n_splits: 2
+    test_size: 0.25
+  gse165087_scrna:
+    enabled: true
+    type: cll_scrna
+    data_path: data/cll_rs_scrna/data.h5ad
+    label_key: time_group
+    min_genes: 200
+    min_cells: 3
+    n_hvg: 2000
+    n_pcs: 50
+    max_cells: 120
+    use_precomputed_pca: true
+    var_genes: 50
+    n_splits: 2
+    test_size: 0.25
+
+methods:
+  geometry_modes: [euclidean, ricci, diffusion, phate, dtm]
+  include_forman_ricci: false
+  solvers: [l2, elastic]
+  k: 10
+  iters: 5
+  alpha: 0.5
+  lambda_: 1.0e-6
+  top_k: 20
+  normalize: std
+  n_boot: 1
+  subsample_frac: 0.8
+  rescale_median: 1.0
+  bottleneck_boot: 2
+  bottleneck_top_bars: 30
+  bottleneck_datasets: [tcga_luad]
+  bottleneck_solvers: [elastic]
+
+stats:
+  paired_reference: euclidean_elastic
+  paired_targets: [ricci_elastic, diffusion_elastic, phate_elastic, dtm_elastic, euclidean_l2]

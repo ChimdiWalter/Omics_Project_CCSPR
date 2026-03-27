@@ -1,0 +1,228 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{mathtools}
+\captionsetup{font=small}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\DeclareMathOperator{\TIP}{TIP}
+\DeclareMathOperator{\supp}{supp}
+\DeclareMathOperator{\Rips}{Rips}
+\DeclareMathOperator{\diam}{diam}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\title{CC-SPR Supplementary Materials}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Mathematical Background}
+\label{sec:supp_background}
+% ============================================================
+
+\subsection{Simplicial homology and persistence}
+
+Let $X = \{x_1, \ldots, x_n\} \subset \mathbb{R}^p$ be a point cloud equipped with a metric $d$.
+The \emph{Vietoris--Rips complex} at scale $\varepsilon$ is
+\[
+\Rips_\varepsilon(X, d) = \bigl\{ \sigma \subseteq X : \diam_d(\sigma) \le \varepsilon \bigr\}.
+\]
+As $\varepsilon$ increases from $0$ to $\infty$, the nested family $\{\Rips_\varepsilon\}_{\varepsilon \ge 0}$ forms a filtration.
+Applying simplicial homology with field coefficients $\mathbb{F}$ to this filtration yields a persistence module that decomposes into interval modules $\{[b_i, d_i)\}_{i \in I}$.
+
+\begin{definition}[Persistence barcode]\label{def:barcode}
+The \emph{barcode} of a filtered simplicial complex is the multiset of intervals $\{[b_i, d_i)\}_{i \in I}$ encoding the birth and death scales of homology classes.
+The \emph{persistence} of the $i$-th feature is $\pi_i = d_i - b_i$, and its \emph{midlife} is $m_i = (b_i + d_i)/2$.
+\end{definition}
+
+\begin{definition}[Chain groups and boundary maps]\label{def:chains}
+Let $K$ be a simplicial complex.
+The \emph{$k$-chain group} $C_k(K; \mathbb{F})$ is the $\mathbb{F}$-vector space with basis the $k$-simplices of $K$.
+The \emph{boundary operator} $\partial_k: C_k \to C_{k-1}$ is defined on each $k$-simplex $\sigma = [v_0, \ldots, v_k]$ by
+\[
+\partial_k(\sigma) = \sum_{i=0}^k (-1)^i [v_0, \ldots, \hat{v}_i, \ldots, v_k].
+\]
+The fundamental identity $\partial_{k-1} \circ \partial_k = 0$ ensures $H_k(K; \mathbb{F}) = \ker(\partial_k) / \operatorname{im}(\partial_{k+1})$.
+\end{definition}
+
+\subsection{Harmonic representatives}
+
+For a selected $H_1$ bar $[b, d)$, let $z_0$ be an initial cycle representative and $\partial_2$ the boundary operator from 2-chains to 1-chains.
+The \emph{harmonic representative} minimizes $\ell_2$ energy within the affine homology class:
+\[
+\hat{z}_{\mathrm{harm}} = \argmin_{y \in C_2} \| z_0 + \partial_2 y \|_2^2.
+\]
+
+\begin{remark}[Dense support problem]\label{rem:dense}
+The harmonic solution typically has $\|\hat{z}_{\mathrm{harm}}\|_0 = O(|E|)$ where $|E|$ is the number of edges.
+In omics applications, this means hundreds or thousands of nonzero edge weights, diluting the biological signal when projected to feature space.
+\end{remark}
+
+% ============================================================
+\section{Proofs and Derivations}
+\label{sec:supp_proofs}
+% ============================================================
+
+\subsection{Convexity of the CC-SPR objective}
+
+\begin{proposition}[Convexity]\label{prop:convex}
+The CC-SPR objective
+\[
+f(y) = \| z_0 + \partial_2 y \|_2^2 + \lambda_1 \| z_0 + \partial_2 y \|_1 + \lambda_2 \| y \|_2^2
+\]
+is convex in $y$. When $\lambda_2 > 0$, it is strongly convex with a unique minimizer.
+\end{proposition}
+
+\begin{proof}
+Each term is convex:
+(i) $f_1(y) = \|z_0 + \partial_2 y\|_2^2$ is convex as a composition of a convex quadratic with an affine map;
+(ii) $f_2(y) = \lambda_1 \|z_0 + \partial_2 y\|_1$ is convex (norms composed with affine maps);
+(iii) $f_3(y) = \lambda_2 \|y\|_2^2$ is convex (strongly convex when $\lambda_2 > 0$).
+A nonnegative sum of convex functions is convex, and strong convexity of any summand implies strong convexity of the sum.
+\end{proof}
+
+% ============================================================
+\section{Backend Implementation Details}
+\label{sec:supp_backends}
+% ============================================================
+
+\subsection{Euclidean backend}
+Standard $\ell_2$ distance: $D_{ij} = \|x_i - x_j\|_2$.
+Applied after optional PCA dimensionality reduction.
+
+\subsection{Ollivier--Ricci curvature backend}
+\begin{enumerate}
+\item Construct $k$-nearest-neighbor graph $G = (V, E, w)$ with $w_{ij} = \|x_i - x_j\|_2$.
+\item For $T$ iterations: compute Ollivier--Ricci curvature $\kappa(i,j)$ for each edge via optimal transport between neighbor distributions; update weights $w_{ij}^{(t+1)} = w_{ij}^{(t)} - \eta \cdot \kappa^{(t)}(i,j) \cdot w_{ij}^{(t)}$.
+\item Compute shortest-path distances on the deformed graph.
+\end{enumerate}
+Default parameters: $k=10$, $T=5$, $\eta=0.5$.
+
+\subsection{Diffusion backend}
+\begin{enumerate}
+\item Construct affinity matrix $W_{ij} = \exp(-\|x_i - x_j\|_2^2 / \sigma_i \sigma_j)$ where $\sigma_i$ is adaptive bandwidth.
+\item Form transition matrix $P = D^{-1}W$ where $D = \text{diag}(W\mathbf{1})$.
+\item Compute diffusion distance: $D_{ij}^{\text{diff}} = \|P^t_{i\cdot} - P^t_{j\cdot}\|_2$ at time scale $t$.
+\end{enumerate}
+
+\subsection{PHATE-like backend}
+Compute potential distances from the diffusion operator:
+$D_{ij}^{\text{pot}} = \|\log(P^t_{i\cdot} + \epsilon) - \log(P^t_{j\cdot} + \epsilon)\|_2$
+with $\epsilon = 10^{-7}$ for numerical stability.
+
+\subsection{Distance-to-measure (DTM) backend}
+$d_i^{\text{DTM}} = \frac{1}{k}\sum_{j \in \text{kNN}(i)} \|x_i - x_j\|_2^2$, then
+$D_{ij}^{\text{DTM}} = |d_i^{\text{DTM}} - d_j^{\text{DTM}}|$.
+Robust to outliers: points in sparse regions have high DTM values, reducing their influence on the filtration.
+
+% ============================================================
+\section{Resource-Bounded Single-Cell Validation}
+\label{sec:supp_scrna}
+% ============================================================
+
+Three GSE165087 configurations failed under cluster memory limits, establishing the resource boundary:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllll}
+\toprule
+Run type & State & Elapsed & Requested memory & Peak RSS \\
+\midrule
+scRNA full & OUT\_OF\_MEMORY & 16:43:25 & 96\,GB & 100.3\,GB \\
+scRNA fast-track & TIMEOUT & 20:00:06 & 96\,GB & 75.2\,GB \\
+scRNA low-memory & OUT\_OF\_MEMORY & 11:25:59 & 48\,GB & 49.7\,GB \\
+scRNA manuscript-safe & COMPLETED & 00:07:49 & 32\,GB & 2.9\,GB \\
+scRNA ablation-safe & COMPLETED & --- & 32\,GB & ${\sim}$9.3\,GB \\
+\bottomrule
+\end{tabular}
+\caption{Execution envelope for single-cell experiments on GSE165087.}
+\label{tab:supp_scrna}
+\end{table}
+
+The manuscript-safe configuration ($n=320$ cells) produces F1 $= 0.925$ for all methods (ceiling effect).
+The ablation-safe configuration ($n=400$) shows CC-SPR ($0.823$) exceeding harmonic ($0.798$) while trailing standard ($0.888$).
+
+% ============================================================
+\section{Ablation Tables}
+\label{sec:supp_ablation}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Dataset & Ablation axis & Best value & Mean F1 & $n$ \\
+\midrule
+LUAD & distance mode & ricci & 0.463 & 2 \\
+LUAD & Ricci iterations & 10 & 0.551 & 2 \\
+LUAD & $k$ & 10 & 0.405 & 2 \\
+LUAD & $\lambda$ & $10^{-7}$ & 0.594 & 2 \\
+LUAD & normalize & std & 0.522 & 2 \\
+LUAD & top-$K$ & 10 & 0.667 & 2 \\
+\midrule
+GSE161711 & distance mode & euclidean & 0.600 & 5 \\
+GSE161711 & Ricci iterations & 0 & 0.578 & 5 \\
+GSE161711 & $k$ & 5 & 0.632 & 5 \\
+GSE161711 & $\lambda$ & $10^{-4}$ & 0.590 & 5 \\
+GSE161711 & normalize & std & 0.596 & 5 \\
+GSE161711 & top-$K$ & 50 & 0.806 & 5 \\
+\bottomrule
+\end{tabular}
+\caption{Best ablation settings from cached sweeps across LUAD and GSE161711.}
+\label{tab:supp_ablation}
+\end{table}
+
+% ============================================================
+\section{Full Enrichment Results}
+\label{sec:supp_enrichment}
+% ============================================================
+
+Complete enrichment tables with all terms at adjusted $p < 0.1$ are provided in the supplementary CSV files.
+The enrichment analysis was performed using gseapy v1.1.12 with ORA against MSigDB Hallmark 2020, KEGG 2021 Human, and Reactome 2022 databases using Enrichr's default background gene set.
+
+% ============================================================
+\section{Software Versions}
+\label{sec:supp_software}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Package & Version \\
+\midrule
+Python & $\geq$ 3.10 \\
+GUDHI & $\geq$ 3.8 \\
+CVXPY & $\geq$ 1.4 \\
+GraphRicciCurvature & $\geq$ 0.5 \\
+scanpy & $\geq$ 1.9 \\
+scikit-learn & $\geq$ 1.3 \\
+gseapy & $\geq$ 1.1 \\
+numpy & $\geq$ 1.24 \\
+\bottomrule
+\end{tabular}
+\caption{Key software dependencies. A frozen environment file (\texttt{requirements-frozen.txt}) with exact versions is provided in the repository.}
+\label{tab:supp_software}
+\end{table}
+
+\end{document}

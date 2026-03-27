@@ -1,0 +1,56 @@
+seed: 42
+cache_dir: data/cache
+
+skip_if_complete: true
+
+output:
+  results_dir: results
+  tag: cll_rs_scrna_gse165087
+
+checkpoint:
+  enabled: true
+
+figure_arrays:
+  filename: figure_arrays_cll_rs_scrna_gse165087_safe.npz
+
+dataset:
+  data_path: data/cll_rs_scrna/data.h5ad
+  label_key: label
+  min_genes: 200
+  min_cells: 3
+  n_hvg: 800
+  n_pcs: 20
+  max_cells: 320
+  use_preprocessed_if_available: true
+
+protocol:
+  var_genes: 800
+  n_splits: 1
+  test_size: 0.25
+  harmonic_params:
+    mode: euclidean
+    solver: l2
+    k: 10
+    iters: 0
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 1
+    subsample_frac: 0.8
+    rescale_median: 1.0
+  ccspr_params:
+    mode: ricci
+    solver: elastic
+    k: 10
+    iters: 2
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 1
+    subsample_frac: 0.8
+    rescale_median: 1.0
+
+ablation:
+  enabled: false

@@ -1,0 +1,64 @@
+seed: 42
+cache_dir: data/cache
+
+dataset:
+  processed_matrix_path: data/cll_venetoclax/processed_matrix.tsv
+  label_col: label
+
+protocol:
+  var_genes: 5000
+  n_splits: 2
+  test_size: 0.25
+  harmonic_params:
+    mode: euclidean
+    solver: l2
+    k: 10
+    iters: 0
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 5
+    subsample_frac: 0.8
+    rescale_median: 1.0
+  eu_sparse_params:
+    mode: euclidean
+    solver: elastic
+    k: 10
+    iters: 0
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 5
+    subsample_frac: 0.8
+    rescale_median: 1.0
+  ccspr_params:
+    mode: ricci
+    solver: elastic
+    k: 10
+    iters: 5
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 5
+    subsample_frac: 0.8
+    rescale_median: 1.0
+
+ablation:
+  var_genes: 5000
+  n_splits: 2
+  test_size: 0.25
+  grids:
+    distance_mode: [euclidean, ricci]
+    iters: [0, 2, 5, 10]
+    k: [5, 10, 15]
+    lambda: [1.0e-8, 1.0e-7, 1.0e-6, 1.0e-5, 1.0e-4]
+    top_k: [10, 20, 50]
+    normalize: [none, std]
+
+output:
+  results_dir: results/cll_venetoclax
+  global_figures_dir: results/figures
+  global_tables_dir: results/tables

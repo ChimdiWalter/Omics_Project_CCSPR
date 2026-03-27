@@ -1,0 +1,50 @@
+seed: 42
+cache_dir: data/cache
+skip_if_complete: true
+
+dataset:
+  processed_matrix_path: data/cll_venetoclax/processed_matrix.tsv
+  label_col: label
+
+protocol:
+  var_genes: 5000
+  n_splits: 5
+  test_size: 0.25
+  harmonic_params:
+    mode: euclidean
+    solver: l2
+    k: 10
+    iters: 0
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 20
+    subsample_frac: 0.8
+    rescale_median: 1.0
+  ccspr_params:
+    mode: ricci
+    solver: elastic
+    k: 10
+    iters: 5
+    alpha: 0.5
+    lambda_: 1.0e-6
+    top_k: 20
+    normalize: std
+    n_boot: 20
+    subsample_frac: 0.8
+    rescale_median: 1.0
+
+ablation:
+  var_genes: 5000
+  n_splits: 5
+  test_size: 0.25
+  grids:
+    lambda: [1.0e-6, 1.0e-5]
+    k: [10, 15]
+    top_k: [10, 20]
+    normalize: [std]
+
+output:
+  results_dir: results
+  tag: cll_venetoclax_gse161711_bounded

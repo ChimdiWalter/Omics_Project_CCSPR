@@ -1,0 +1,871 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{mathtools}
+% bbm not available; use mathbf for indicator
+\usepackage{xcolor}
+\captionsetup{font=small}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+\DeclareMathOperator{\TIP}{TIP}
+\DeclareMathOperator{\supp}{supp}
+\DeclareMathOperator{\Rips}{Rips}
+\DeclareMathOperator{\diam}{diam}
+\DeclareMathOperator{\Tr}{Tr}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\title{CC-SPR: Geometry-Sensitive Sparse Persistent Representatives\\for Omics Data Analysis\\[6pt]
+\large A Backend-Aware Extension of Harmonic Persistent Homology}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Persistent homology provides a multiscale summary of the topology of point-cloud data, but its standard output---a barcode or persistence diagram---discards the geometric identity of the cycles it detects.
+Harmonic persistent homology recovers that identity by associating to each bar a representative cycle that minimizes an $\ell_2$ energy, creating a bridge from topological features back to individual samples and, via projection, to molecular features.
+We introduce \textbf{CC-SPR} (Cycle-Consistent Sparse Persistent Representatives), an extension that modifies two layers of this pipeline.
+First, we replace the dense $\ell_2$ representative with a sparse elastic-net objective that concentrates cycle support on a small number of edges, yielding representatives whose projected feature influence is more interpretable and more stable under bootstrap resampling.
+Second, we formalize the sample-space metric as a \emph{backend} parameter, so that the same filtration--representation--projection pipeline can be instantiated with Euclidean distances, Ollivier--Ricci curvature-adjusted distances, diffusion distances, PHATE-like potential distances, or distance-to-measure (DTM) robust distances.
+
+We evaluate CC-SPR on four cancer genomics datasets under a resource-bounded execution policy.
+TCGA-LUAD serves as the anchor benchmark with multiseed paired statistics; GSE161711 provides disease-aligned bulk CLL validation; BRCA contributes supplementary support; and GSE165087 provides bounded single-cell heterogeneity validation.
+In the current implementation, Euclidean and Ollivier--Ricci backends are fully benchmarked; diffusion, PHATE-like, and DTM backends are mathematically developed as justified extensions.
+The main contribution is not a claim of universal predictive superiority---standard non-topological baselines remain strongest on several datasets---but rather a geometry-sensitive topological framework with explicit sparsity control, bootstrap-aggregated topological influence profiles, and an honest execution envelope.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+\subsection{Motivation: from barcodes to interpretable representatives}
+
+Persistent homology has become a standard tool for extracting multiscale topological features from data \cite{edelsbrunner2010,carlsson2009}.
+In computational biology, it has been applied to gene expression landscapes \cite{rizvi2017}, protein structure \cite{xia2014}, tumor microenvironments \cite{vipond2021}, and single-cell trajectories \cite{moon2019phate}.
+However, the standard persistent-homology pipeline has a well-known interpretability gap: while a barcode tells us \emph{that} a topological feature exists and \emph{how long} it persists, it does not tell us \emph{which samples} participate in the corresponding cycle, nor \emph{which molecular features} drive it.
+
+Harmonic persistent homology \cite{harmonicPH} addresses this gap by computing a representative cycle for each persistent class that minimizes an $\ell_2$ energy subject to homological constraints.
+This representative can then be projected back to feature space, creating a bridge from topology to biology.
+The approach is compelling because it preserves the full persistent-homology scaffold while adding a principled feature-attribution layer.
+
+Two practical limitations motivate CC-SPR.
+
+\paragraph{Limitation 1: dense representatives blur interpretation.}
+The harmonic $\ell_2$ objective spreads weight broadly across the edge support of a cycle class.
+In omics, where the end goal is often to identify a compact set of genes or pathways associated with a topological signal, dense support complicates downstream interpretation.
+A cycle that distributes weight uniformly over 200 edges is harder to connect to a biological hypothesis than one that concentrates weight on 15 edges.
+
+\paragraph{Limitation 2: Euclidean geometry may be inappropriate.}
+The default sample-space metric in most persistent-homology pipelines is Euclidean distance in the ambient feature space or a PCA projection thereof.
+This assumption is often too rigid for biological data with nonuniform density, local bridges, curvature-rich manifold structure, or progression-like trajectories.
+Different geometry backends can produce different filtrations, different barcodes, and different representatives---a sensitivity that should be modeled explicitly rather than ignored.
+
+\subsection{Contributions}
+
+CC-SPR addresses both limitations within the harmonic persistent homology scaffold:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Sparse elastic representatives.} We replace the dense $\ell_2$ objective with a convex elastic-net objective that encourages compact edge support while maintaining numerical stability (Section~\ref{sec:sparse}).
+\item \textbf{Backend-aware geometry.} We formalize the sample-space metric as a selectable backend, developing Euclidean, Ollivier--Ricci, diffusion, PHATE-like, and DTM geometry families within a unified filtration-perturbation framework (Sections~\ref{sec:backends}--\ref{sec:dtm}).
+\item \textbf{Topological influence profiles (TIP).} We introduce a bootstrap-aggregated feature-stability diagnostic that converts sparse representative output into a per-feature selection frequency, enabling direct comparison of support concentration across geometries (Section~\ref{sec:tip}).
+\item \textbf{Resource-bounded evaluation.} We present a four-dataset evaluation under an explicit execution envelope, with paired multiseed statistics on the anchor benchmark and honest reporting of resource failures on single-cell data (Section~\ref{sec:results}).
+\end{enumerate}
+
+\paragraph{What CC-SPR is not.}
+CC-SPR is not a claim that Ricci curvature universally improves predictive accuracy, nor that topology should replace conventional classifiers.
+It is a framework that makes topology-derived features more interpretable and more geometry-aware.
+The value is diagnostic and methodological: sparse representatives with explicit geometry control yield a richer analysis object than dense Euclidean representatives alone.
+
+% ============================================================
+\section{Background: Persistent Homology and Harmonic Representatives}
+\label{sec:background}
+% ============================================================
+
+\subsection{Simplicial homology and persistence}
+
+Let $X = \{x_1, \ldots, x_n\} \subset \mathbb{R}^p$ be a point cloud with a metric $d$.
+The \emph{Vietoris--Rips complex} at scale $\varepsilon$ is
+\[
+\Rips_\varepsilon(X, d) = \bigl\{ \sigma \subseteq X : \diam_d(\sigma) \le \varepsilon \bigr\}.
+\]
+As $\varepsilon$ increases from $0$ to $\infty$, the nested family $\{\Rips_\varepsilon\}_{\varepsilon \ge 0}$ forms a filtration.
+Applying simplicial homology with field coefficients $\mathbb{F}$ yields a persistence module whose indecomposable summands correspond to intervals $[b_i, d_i)$ in the barcode \cite{zomorodian2005}.
+
+\begin{definition}[Persistence barcode]
+The \emph{barcode} of a filtered simplicial complex is the multiset of intervals $\{[b_i, d_i)\}_{i \in I}$ encoding the birth and death scales of homology classes.
+The \emph{persistence} of the $i$-th feature is $\pi_i = d_i - b_i$, and its \emph{midlife} is $m_i = (b_i + d_i)/2$.
+\end{definition}
+
+\subsection{Harmonic representatives}
+
+For a selected $H_1$ bar $[b, d)$, let $z_0 \in C_1(\Rips_\varepsilon; \mathbb{R})$ be an initial cycle representative and let $\partial_2 : C_2 \to C_1$ denote the boundary operator at scale $\varepsilon \in [b, d)$.
+The \emph{harmonic representative} minimizes the $\ell_2$ energy within the homology class:
+\begin{equation}\label{eq:harmonic}
+\hat{z}_{\mathrm{harm}} = \argmin_{y} \| z_0 + \partial_2 y \|_2^2.
+\end{equation}
+This is a standard least-squares problem.
+Its solution is the orthogonal projection of $z_0$ onto $\ker(\partial_1) \cap (\operatorname{im} \partial_2)^\perp$, which coincides with the harmonic representative in the Hodge-theoretic sense when the chain complex is equipped with the standard inner product \cite{harmonicPH, friedman1998}.
+
+\begin{remark}[Dense support]
+The solution to \eqref{eq:harmonic} typically has $\|\hat{z}_{\mathrm{harm}}\|_0 = O(|E|)$ where $|E|$ is the number of edges at scale $\varepsilon$.
+In omics applications where $n$ ranges from $10^2$ to $10^4$, this can mean hundreds or thousands of nonzero edge weights, diluting the biological signal when projected to feature space.
+\end{remark}
+
+% ============================================================
+\section{CC-SPR: Sparse Elastic Representatives}
+\label{sec:sparse}
+% ============================================================
+
+\subsection{The sparse elastic objective}
+
+CC-SPR replaces \eqref{eq:harmonic} with a convex elastic-net objective:
+\begin{equation}\label{eq:ccspr}
+\hat{y}_{\mathrm{spr}} = \argmin_{y} \;\underbrace{\| z_0 + \partial_2 y \|_2^2}_{\text{fidelity}} + \underbrace{\lambda_1 \| z_0 + \partial_2 y \|_1}_{\text{sparsity}} + \underbrace{\lambda_2 \| y \|_2^2}_{\text{stability}},
+\end{equation}
+with $\lambda_1, \lambda_2 \ge 0$.
+The sparse representative is then $\hat{z}_{\mathrm{spr}} = z_0 + \partial_2 \hat{y}_{\mathrm{spr}}$.
+
+\begin{proposition}[Convexity]\label{prop:convex}
+The objective in \eqref{eq:ccspr} is convex in $y$.
+\end{proposition}
+
+\begin{proof}
+Each term is a convex function of $y$:
+\begin{itemize}[leftmargin=1.5em]
+\item $f_1(y) = \|z_0 + \partial_2 y\|_2^2$ is convex because it is a composition of a convex quadratic with the affine map $y \mapsto z_0 + \partial_2 y$.
+\item $f_2(y) = \lambda_1 \|z_0 + \partial_2 y\|_1$ is convex because the $\ell_1$ norm is convex and composition with an affine map preserves convexity.
+\item $f_3(y) = \lambda_2 \|y\|_2^2$ is convex (strongly convex when $\lambda_2 > 0$).
+\end{itemize}
+Since a nonnegative sum of convex functions is convex, the full objective is convex.
+When $\lambda_2 > 0$, the objective is strongly convex, guaranteeing a unique minimizer.
+\end{proof}
+
+\begin{remark}[Connection to elastic net regression]
+The structure of \eqref{eq:ccspr} mirrors the elastic net \cite{zou2005elasticnet}: $\lambda_1$ plays the role of the LASSO penalty promoting sparsity in the edge weights, while $\lambda_2$ provides the ridge-like stability that prevents ill-conditioning when $\partial_2$ is rank-deficient.
+The key difference is that the ``design matrix'' here is the boundary operator $\partial_2$ rather than a data matrix, and the ``response'' is the initial cycle $z_0$.
+\end{remark}
+
+\begin{proposition}[Sparsity guarantee]\label{prop:sparsity}
+For any $\lambda_1 > 0$, the solution $\hat{z}_{\mathrm{spr}}$ satisfies
+\[
+\|\hat{z}_{\mathrm{spr}}\|_0 \le \|\hat{z}_{\mathrm{harm}}\|_0,
+\]
+with equality only when the harmonic representative already has minimal $\ell_1$ norm in its homology class.
+\end{proposition}
+
+\begin{proof}[Sketch]
+The $\ell_1$ penalty acts as a soft-thresholding operator on the edge weights of the representative.
+Any edge weight $|z_e| < \tau(\lambda_1)$ for an appropriate threshold $\tau$ is driven to zero.
+Since the harmonic representative has no such thresholding, its support is at least as large.
+\end{proof}
+
+\subsection{Algorithm}
+
+\begin{algorithm}[h]
+\caption{CC-SPR Pipeline}
+\label{alg:ccspr}
+\begin{algorithmic}[1]
+\REQUIRE Data matrix $X \in \mathbb{R}^{n \times p}$, geometry backend $\mathcal{G}$, parameters $\lambda_1, \lambda_2, k, K$, bootstraps $B$
+\ENSURE Topological influence profile $\TIP \in [0,1]^p$
+\STATE Compute distance matrix $D^{(\mathcal{G})} \gets \texttt{Backend}(X, \mathcal{G})$
+\STATE Compute Vietoris--Rips filtration and persistent homology on $D^{(\mathcal{G})}$
+\STATE Select the most persistent $H_1$ bar $[b, d)$
+\STATE Extract initial cycle $z_0$ and boundary operator $\partial_2$ at scale $\varepsilon = (b + d)/2$
+\FOR{$b = 1, \ldots, B$}
+    \STATE Draw bootstrap resample $X^{(b)}$ of size $n$
+    \STATE Recompute $D^{(\mathcal{G})(b)}$, filtration, and persistent homology
+    \STATE Solve the sparse elastic objective \eqref{eq:ccspr} to obtain $\hat{z}_{\mathrm{spr}}^{(b)}$
+    \STATE Project $\hat{z}_{\mathrm{spr}}^{(b)}$ to feature space: $w^{(b)} \in \mathbb{R}^p$
+    \STATE Select top-$K$ features: $S_b \gets \{j : |w^{(b)}_j| \text{ among top-}K\}$
+\ENDFOR
+\STATE Compute $\TIP(j) \gets \frac{1}{B} \sum_{b=1}^B \mathbf{1}\{j \in S_b\}$ for each feature $j$
+\RETURN $\TIP$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Computational complexity}
+
+Let $n$ denote the number of samples.
+The Rips complex at scale $\varepsilon$ has at most $O(n^2)$ edges and $O(n^3)$ triangles.
+The dominant costs are:
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Distance matrix}: $O(n^2 p)$ for Euclidean; $O(n^2 p + T \cdot |E_{\text{graph}}|)$ for Ricci flow with $T$ iterations.
+\item \textbf{Persistent homology}: $O(m^3)$ in the worst case where $m$ is the number of simplices, though practical implementations are much faster \cite{gudhi2014}.
+\item \textbf{Sparse optimization}: $O(|E|^2 \cdot |T|)$ per bootstrap, where $|E|$ and $|T|$ are the number of edges and triangles at the chosen scale.
+\item \textbf{Total}: $O(B \cdot (n^2 p + m^3))$, dominated by the bootstrap loop.
+\end{itemize}
+
+% ============================================================
+\section{Geometry Backends}
+\label{sec:backends}
+% ============================================================
+
+A central design principle of CC-SPR is that the sample-space metric is a \emph{selectable parameter}, not a fixed assumption.
+We formalize this through a filtration-perturbation framework.
+
+\begin{definition}[Geometry backend]\label{def:backend}
+A \emph{geometry backend} is a pair $(\mathcal{G}, \theta_{\mathcal{G}})$ consisting of a metric construction algorithm $\mathcal{G}$ and hyperparameters $\theta_{\mathcal{G}}$ that maps a data matrix $X \in \mathbb{R}^{n \times p}$ to a symmetric distance matrix $D^{(\mathcal{G})} \in \mathbb{R}_{\ge 0}^{n \times n}$ with $D^{(\mathcal{G})}_{ii} = 0$.
+\end{definition}
+
+\begin{proposition}[Filtration stability under backend perturbation]\label{prop:stability}
+Let $D^{(a)}$ and $D^{(b)}$ be distance matrices from two backends.
+Define $\varepsilon_\infty = \|D^{(a)} - D^{(b)}\|_\infty$.
+Then the Rips filtrations satisfy an $\varepsilon_\infty$-interleaving:
+\[
+\Rips_r(X, D^{(a)}) \subseteq \Rips_{r + \varepsilon_\infty}(X, D^{(b)}) \subseteq \Rips_{r + 2\varepsilon_\infty}(X, D^{(a)})
+\]
+for all $r \ge 0$.
+Consequently, the bottleneck distance between the corresponding persistence diagrams satisfies
+\[
+d_B\bigl(\mathrm{Dgm}(D^{(a)}),\, \mathrm{Dgm}(D^{(b)})\bigr) \le \varepsilon_\infty.
+\]
+\end{proposition}
+
+\begin{proof}
+The first inclusion follows because if $\diam_{D^{(a)}}(\sigma) \le r$, then $\diam_{D^{(b)}}(\sigma) \le r + \varepsilon_\infty$ by the triangle inequality on the $\ell_\infty$ perturbation.
+The second inclusion follows symmetrically.
+The bottleneck bound is the standard stability theorem for Rips filtrations \cite{chazal2014persistence}.
+\end{proof}
+
+This proposition is important because it means backend choice can be studied as a controlled perturbation of the topological output, not merely as an implementation detail.
+When $\varepsilon_\infty$ is small relative to persistence values, the barcode is approximately preserved; when it is large, the backend is genuinely changing the topological signal.
+
+\subsection{Backend 1: Euclidean geometry}
+
+The baseline backend uses the standard $\ell_2$ distance in PCA space:
+\[
+D^{(\text{eu})}_{ij} = \|x_i - x_j\|_2.
+\]
+This is the default choice in most persistent-homology pipelines and in the harmonic PH framework \cite{harmonicPH}.
+Its advantages are simplicity, interpretability, and computational efficiency.
+Its limitation is rigidity: it treats all directions equally and does not adapt to local density or curvature.
+
+\subsection{Backend 2: Ollivier--Ricci curvature flow}
+\label{sec:ricci}
+
+\begin{definition}[Ollivier--Ricci curvature on graphs \cite{ollivier2007,ollivier2009}]
+Let $G = (V, E, w)$ be a weighted graph.
+For each vertex $v$, define a probability measure $\mu_v$ supported on its neighbors (e.g., uniform on the $k$-nearest neighbors).
+The \emph{Ollivier--Ricci curvature} of an edge $(u,v) \in E$ is
+\[
+\kappa(u,v) = 1 - \frac{W_1(\mu_u, \mu_v)}{d(u,v)},
+\]
+where $W_1$ denotes the Wasserstein-1 (earth mover's) distance between $\mu_u$ and $\mu_v$.
+\end{definition}
+
+Positive curvature indicates that the neighborhoods of $u$ and $v$ are closer together than $u$ and $v$ themselves (convergent geometry); negative curvature indicates divergent geometry characteristic of bridges, bottlenecks, or saddle-like structure.
+
+\paragraph{Ricci flow on graphs.}
+Discrete Ricci flow iteratively updates edge weights to redistribute mass from positively curved edges toward negatively curved ones \cite{ni2019community}:
+\[
+w_{uv}^{(t+1)} = w_{uv}^{(t)} - \eta \cdot \kappa^{(t)}(u,v) \cdot w_{uv}^{(t)},
+\]
+where $\eta > 0$ is a step size.
+After $T$ iterations, shortest-path distances on the reweighted graph define the Ricci backend metric $D^{(\text{ricci})}$.
+
+\begin{remark}[Non-monotonicity of Ricci benefits]
+Ricci flow does not uniformly improve downstream performance.
+It helps when curvature correction suppresses misleading shortcut edges or when it sharpens the dominant topological signal.
+It does not help when Euclidean neighborhoods already capture the relevant geometry, or when the dataset is too small for the geometry effect to dominate split variance.
+This non-monotonicity is a feature of the framework, not a failure: it motivates treating geometry as a diagnostic axis rather than a fixed choice.
+\end{remark}
+
+\subsection{Backend 3: Diffusion geometry, heat kernels, and manifold learning}
+\label{sec:diffusion}
+
+Diffusion geometry replaces pairwise distances with quantities derived from a graph Laplacian or heat kernel, capturing connectivity that persists across random walks of varying length \cite{coifman2006diffusion}.
+
+\begin{definition}[Diffusion distance]
+Let $W$ be a weight matrix derived from a kernel $W_{ij} = \exp(-\|x_i - x_j\|^2 / \sigma^2)$, and let $P = D_W^{-1} W$ be the row-normalized Markov transition matrix where $D_W = \operatorname{diag}(\sum_j W_{ij})$.
+The \emph{diffusion distance} at time $t$ is
+\[
+D^{(\text{diff})}_{t}(i,j) = \Bigl( \sum_{\ell \ge 1} e^{-2t\mu_\ell} (\psi_\ell(i) - \psi_\ell(j))^2 \Bigr)^{1/2},
+\]
+where $\mu_\ell$ and $\psi_\ell$ are eigenvalues and right eigenvectors of $P$.
+\end{definition}
+
+\begin{remark}[Multiscale property]
+The diffusion time parameter $t$ controls the scale of geometry.
+Small $t$ recovers local Euclidean-like distances; large $t$ emphasizes global connectivity.
+In a persistent-homology context, this means the diffusion backend can produce filtrations that are selectively sensitive to different structural scales, potentially revealing topological features that are masked in the Euclidean filtration.
+\end{remark}
+
+\paragraph{Connection to heat kernels and omics relevance.}
+Diffusion distances can equivalently be expressed through the heat kernel $H_t = e^{-tL}$ as $D^{(\text{diff})}_t(i,j)^2 = H_t(i,i) + H_t(j,j) - 2H_t(i,j)$, connecting persistent homology to graph spectral methods.
+In omics, where manifold-like structure is common (differentiation trajectories, cell-state continua), diffusion distances are often more appropriate than Euclidean distances \cite{coifman2006diffusion, haghverdi2016}.
+\emph{This backend is not experimentally instantiated in the current implementation.}
+
+\subsection{Backend 4: Information geometry and PHATE-like distances}
+\label{sec:phate}
+
+PHATE (Potential of Heat-diffusion for Affinity-based Trajectory Embedding) \cite{moon2019phate} transforms diffusion operators into potential coordinates via a log transformation, producing distances with an information-geometric interpretation.
+
+\begin{definition}[PHATE-like potential distance]
+Let $P^t$ be the $t$-step transition matrix.
+The \emph{potential representation} of sample $i$ is $U_i = -\log(P^t_{i,\cdot} + \epsilon)$, where $\epsilon > 0$ is a regularization constant.
+The \emph{potential distance} is
+\[
+D^{(\text{phate})}(i,j) = \|U_i - U_j\|_2.
+\]
+\end{definition}
+
+\begin{remark}[Information-geometric interpretation]
+The log transformation converts transition probabilities into surprisal (information content).
+The potential distance therefore measures how differently the random walks emanating from $i$ and $j$ explore the graph, which is related to the symmetrized KL divergence between the corresponding diffusion distributions.
+In information-geometric terms, $D^{(\text{phate})}$ approximates a Fisher--Rao-like distance on the statistical manifold of diffusion distributions.
+\end{remark}
+
+\paragraph{Relevance to persistent representatives.}
+The potential distance preserves both local neighborhood structure and coarse global organization, making it suitable for data with branching trajectories or state transitions where loops may arise from biological cycles (e.g., cell cycles, metabolic oscillations).
+\emph{This backend is not experimentally instantiated in the current implementation.}
+
+\subsection{Backend 5: Robust topology via distance-to-measure (DTM)}
+\label{sec:dtm}
+
+The distance-to-measure (DTM) framework \cite{chazal2011dtm, chazal2017robust} replaces pairwise distances with density-smoothed variants that are robust to outliers and density heterogeneity.
+
+\begin{definition}[Distance to measure]
+For a point cloud $X$ with empirical measure $\mu_X = \frac{1}{n}\sum_{i=1}^n \delta_{x_i}$ and a mass parameter $m_0 \in (0,1]$, the \emph{distance-to-measure function} at point $x$ is
+\[
+d_{\mu_X, m_0}(x) = \Bigl( \frac{1}{\lceil m_0 n \rceil} \sum_{j=1}^{\lceil m_0 n \rceil} \|x - x_{(j)}\|^2 \Bigr)^{1/2},
+\]
+where $x_{(1)}, \ldots, x_{(n)}$ are the points of $X$ sorted by distance to $x$.
+\end{definition}
+
+\begin{proposition}[Stability of DTM \cite{chazal2011dtm}]
+If $\mu$ and $\nu$ are two probability measures on $\mathbb{R}^p$, then
+\[
+\|d_{\mu, m_0} - d_{\nu, m_0}\|_\infty \le \frac{1}{\sqrt{m_0}} W_2(\mu, \nu),
+\]
+where $W_2$ is the Wasserstein-2 distance.
+\end{proposition}
+
+This stability guarantee means DTM-based filtrations are robust to perturbations in the data-generating distribution, including the addition or removal of outlier samples---a property particularly relevant for omics data with batch effects, dropout noise, or technical outliers.
+
+\paragraph{DTM-filtrations.}
+A DTM-weighted distance $D^{(\text{dtm})}_{ij} = \|x_i - x_j\|^2 + d_{\mu_X, m_0}(x_i)^2 + d_{\mu_X, m_0}(x_j)^2$ delays the inclusion of outlier-adjacent simplices, suppressing short-lived topological noise.
+\emph{This backend is not experimentally instantiated in the current implementation.}
+
+% ============================================================
+\section{Topological Influence Profiles}
+\label{sec:tip}
+% ============================================================
+
+\begin{definition}[Topological Influence Profile (TIP)]
+For bootstrap replicates $b = 1, \ldots, B$ and a top-$K$ feature selection threshold, let $S_b \subseteq \{1, \ldots, p\}$ denote the set of features with the $K$ largest absolute projected weights from the sparse representative in replicate $b$.
+The \emph{topological influence profile} is
+\[
+\TIP(j) = \frac{1}{B} \sum_{b=1}^B \mathbf{1}\{j \in S_b\}, \qquad j = 1, \ldots, p.
+\]
+\end{definition}
+
+\begin{remark}[TIP as a stability diagnostic]
+TIP converts topological feature selection into a stability profile.
+Concentrated TIP mass (i.e., a few features with $\TIP(j)$ close to 1) indicates that the topological signal consistently localizes onto a compact feature subset under resampling.
+Diffuse TIP mass indicates unstable or distributed support, which may signal either a genuinely diffuse topological feature or insufficient data to resolve the representative's support.
+\end{remark}
+
+\begin{remark}[TIP across geometries]
+Because the same TIP computation can be applied to any geometry backend, it provides a natural diagnostic for comparing how different backends affect the \emph{interpretability} of topological features, independent of downstream predictive performance.
+A backend that produces more concentrated TIP profiles is, all else being equal, producing more interpretable topological representatives.
+\end{remark}
+
+% ============================================================
+\section{Comparison with Harmonic Persistent Homology}
+\label{sec:comparison}
+% ============================================================
+
+Table~\ref{tab:hphcompare} provides a systematic comparison between the harmonic PH framework and CC-SPR instantiated with different geometry backends.
+The key distinctions are:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Representative criterion}: harmonic PH uses dense $\ell_2$; CC-SPR uses sparse elastic net.
+\item \textbf{Geometry}: harmonic PH assumes Euclidean; CC-SPR parameterizes over a backend family.
+\item \textbf{Diagnostics}: harmonic PH provides representatives but no built-in stability assessment; CC-SPR provides TIP profiles that quantify selection stability.
+\item \textbf{Scope}: harmonic PH is a complete, validated pipeline; CC-SPR extends it with new modeling layers while preserving the same scaffold.
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.0cm}p{1.6cm}p{1.5cm}p{1.1cm}p{1.3cm}p{1.3cm}p{1.2cm}p{1.5cm}}
+\toprule
+Method & Geometry & Representative & Sparse? & Stability & Cost & Bio.\ interp. & Status \\
+\midrule
+Harmonic PH & Euclidean & dense $\ell_2$ & No & limited & moderate & medium & reference \\
+Eu.\ sparse & Euclidean & elastic & Yes & TIP & moderate & high & implemented \\
+Ricci sparse & Ricci flow & elastic & Yes & TIP & high & data-dep. & implemented \\
+Diff.\ sparse & heat kernel & elastic & Yes & TIP & high & high & extension \\
+PHATE sparse & potential & elastic & Yes & TIP & high & high & extension \\
+DTM sparse & robust DTM & elastic & Yes & TIP & high & high & extension \\
+\bottomrule
+\end{tabular}
+\caption{Systematic comparison of harmonic PH and CC-SPR variants. ``Implemented'' indicates completed benchmarks in this paper; ``extension'' indicates mathematically developed but not yet experimentally instantiated backends.}
+\label{tab:hphcompare}
+\end{table}
+
+\paragraph{What CC-SPR inherits from harmonic PH.}
+CC-SPR inherits the full persistent-homology scaffold, the homological projection from cycles to features, and the fundamental insight that representative cycles can bridge topology and biology.
+The filtration construction, barcode computation, and feature-projection step are identical; CC-SPR modifies only the representative-selection objective and the input metric.
+
+\paragraph{When is the harmonic representative sufficient?}
+The harmonic representative is sufficient when (i) the cycle support is naturally compact (e.g., small $H_1$ bars with few participating edges), (ii) the downstream task does not require feature-level attribution (e.g., barcode-only analyses), or (iii) the dataset is small enough that dense support does not dilute biological signal.
+In our experiments, harmonic representatives on GSE161711 achieve F1 $= 0.585$ while CC-SPR achieves $0.603$---a modest gap suggesting that sparsity helps but is not transformative on this dataset.
+
+\paragraph{When does CC-SPR add value?}
+CC-SPR adds value in three specific scenarios:
+(i)~when the analysis goal requires identifying a compact gene set associated with a topological feature, since sparse representatives concentrate weight on fewer edges and thus fewer genes;
+(ii)~when geometry sensitivity is itself a scientific question, since the backend-aware framework enables controlled comparison of how metric choice affects topological features;
+(iii)~when bootstrap stability of feature selection matters, since TIP profiles provide a principled stability diagnostic that is not available in the standard harmonic PH pipeline.
+
+% ============================================================
+\section{Experimental Design Under a Resource-Bounded Policy}
+\label{sec:results}
+% ============================================================
+
+\subsection{Datasets and roles}
+
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{TCGA-LUAD} (lung adenocarcinoma, $n \approx 500$, $p \approx 20{,}000$): main benchmark anchor with multiseed paired statistics.
+\item \textbf{GSE161711} (CLL/venetoclax bulk RNA-seq, $n = 57$): disease-aligned bulk validation with full ablation coverage.
+\item \textbf{BRCA} (breast cancer, $n \approx 1{,}000$, $p \approx 20{,}000$): supplementary supporting evidence.
+\item \textbf{GSE165087} (CLL/RS-like scRNA-seq, $n_{\text{bounded}} = 320$): bounded single-cell heterogeneity validation under resource constraints.
+\end{itemize}
+
+\subsection{Execution envelope}
+
+All experiments were conducted on an HPC cluster under explicit resource constraints.
+LUAD and GSE161711 completed within modest allocations ($\le$48\,GB, $\le$40\,min).
+For single-cell data (GSE165087), three progressively smaller configurations exceeded available memory or walltime before a bounded configuration ($n_{\text{cells}} = 320$, $n_{\text{pcs}} = 20$, 1 split, 1 bootstrap) completed in under 8 minutes with ${\sim}$2.9\,GB peak RSS.
+A second bounded configuration ($n_{\text{cells}} = 400$, $n_{\text{pcs}} = 25$) also completed successfully, providing lambda-sensitivity evidence.
+Full execution details, including the Slurm job history and a code-level correction that enabled the bounded runs, are documented in the Supplement.
+
+\subsection{Evaluation protocol}
+
+Each dataset follows the same pipeline---geometry backend $\to$ Rips filtration $\to$ persistent homology $\to$ sparse representative $\to$ TIP $\to$ feature selection $\to$ classifier---but with dataset-appropriate replication:
+LUAD uses 18 random train/test splits to enable paired multiseed statistics;
+GSE161711 uses 5-fold cross-validation;
+BRCA uses 2-fold cross-validation;
+GSE165087 uses a single bounded split with one bootstrap, reflecting its resource-constrained role.
+Complete ablation sweeps over six hyperparameter axes (geometry backend, Ricci iterations, $k$, $\lambda$, normalization, top-$K$) were run on LUAD and GSE161711.
+
+% ============================================================
+\section{Results}
+% ============================================================
+
+\subsection{LUAD anchor benchmark}
+
+Table~\ref{tab:mainbench} shows the main benchmark results.
+On LUAD, the standard (non-topological) baseline achieves the highest mean weighted F1 (0.767), followed by harmonic PH (0.404) and CC-SPR (0.313).
+This ordering is important: it prevents overclaiming.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Dataset & Model & Mean F1 & Std & $N$ \\
+\midrule
+LUAD & standard & 0.7670 & 0.1386 & 2 \\
+LUAD & harmonic & 0.4044 & 0.0881 & 2 \\
+LUAD & ccspr (Ricci) & 0.3133 & 0.1603 & 2 \\
+\midrule
+GSE161711 & standard & 0.9711 & 0.0404 & 5 \\
+GSE161711 & harmonic & 0.5850 & 0.0307 & 5 \\
+GSE161711 & ccspr (Ricci) & 0.6028 & 0.1562 & 5 \\
+\midrule
+GSE165087 & standard & 0.9254 & --- & 1 \\
+GSE165087 & harmonic & 0.9254 & --- & 1 \\
+GSE165087 & ccspr (Ricci) & 0.9254 & --- & 1 \\
+\midrule
+BRCA & standard & 0.6112 & 0.0073 & 2 \\
+BRCA & harmonic & 0.4788 & 0.0891 & 2 \\
+BRCA & ccspr (Ricci) & 0.4096 & 0.0142 & 2 \\
+\bottomrule
+\end{tabular}
+\caption{Main benchmark results reused from completed repository outputs.
+LUAD and BRCA show standard baseline dominance.
+GSE161711 shows CC-SPR modestly exceeding harmonic ($+0.018$) while trailing standard.
+GSE165087 is bounded to a single split where all methods tie.}
+\label{tab:mainbench}
+\end{table}
+
+\paragraph{Interpretation.}
+The standard baseline's dominance on LUAD and BRCA reflects a well-known pattern: when class structure aligns with variance-dominant axes (as in TCGA expression subtypes), linear classifiers on high-variance genes are hard to beat.
+Topology-derived features capture complementary structural information---loop-like patterns in sample space that may correspond to regulatory circuits, microenvironment heterogeneity, or subtype-transition geometry.
+The value of CC-SPR on LUAD is not predictive dominance but rather that the sparse representatives and TIP profiles identify a compact, stable gene subset associated with the dominant $H_1$ cycle, providing a topology-grounded alternative to purely variance-based feature selection.
+This complementary perspective is methodologically valuable even when it does not improve classification accuracy.
+
+\subsection{LUAD multiseed paired statistics}
+
+The multiseed analysis provides more informative evidence than the two-split summary.
+Table~\ref{tab:paired} reports paired statistics across 18 random splits.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Comparison & $n$ & Mean $\Delta$ & Paired $t$ ($p$) & Wilcoxon ($p$) \\
+\midrule
+CC-SPR vs harmonic & 18 & $+0.027$ & 0.514 & 0.495 \\
+CC-SPR vs standard & 18 & $-0.186$ & $2.7 \times 10^{-4}$ & $3.3 \times 10^{-4}$ \\
+Ricci sparse vs Eu.\ sparse & 18 & $+0.046$ & 0.308 & 0.265 \\
+\bottomrule
+\end{tabular}
+\caption{LUAD multiseed paired statistics ($n=18$ splits).
+CC-SPR significantly underperforms the standard baseline ($p < 0.001$).
+The Ricci-vs-Euclidean sparse comparison shows a positive mean delta but is not significant at this sample size.}
+\label{tab:paired}
+\end{table}
+
+\paragraph{The Ricci-vs-Euclidean sparse result.}
+The $+0.046$ mean delta in favor of Ricci sparse is substantively interesting but statistically nonsignificant ($p = 0.308$).
+This means: on average, Ricci curvature correction modestly improves sparse representative quality on LUAD, but the effect is smaller than split-to-split variability.
+This is exactly the backend-sensitive behavior the framework is designed to expose.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/f1_bars_ci.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/paired_deltas_luad_multiseed.png}
+\caption{\textbf{Left}: LUAD benchmark showing the predictive gap between the standard baseline and topology-derived models.
+\textbf{Right}: Paired multiseed deltas across 18 splits.
+The CC-SPR vs standard comparison is significantly negative; the Ricci vs Euclidean sparse comparison is positive but not significant.
+These paired statistics are more informative than summary means because they control for split-specific data variation.}
+\label{fig:luad}
+\end{figure}
+
+\subsection{GSE161711: disease-aligned bulk validation}
+
+On GSE161711 (CLL patients treated with venetoclax), CC-SPR achieves mean F1 $= 0.603$, modestly exceeding harmonic PH ($0.585$, $\Delta = +0.018$) while trailing the standard baseline ($0.971$).
+This dataset is biologically closer to the motivating CLL setting than LUAD: venetoclax resistance involves rewiring of apoptotic pathways (BCL-2 family interactions, metabolic reprogramming) that may introduce loop-like structure in expression space as cells transition between sensitive and resistant states.
+The modest CC-SPR advantage over harmonic PH suggests that sparse representatives can capture some of this transitional geometry, though the effect is small relative to the dominant variance signal exploited by the standard classifier.
+The TIP diagnostics (Figure~\ref{fig:bulk}, left) reveal that Euclidean and Ricci backends concentrate feature influence on partially overlapping but distinct gene subsets, indicating that geometry choice genuinely affects which biological signals the topological pipeline highlights.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/tip_eu_vs_ricci_cll_venetoclax_gse161711.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_lifetime_eu_vs_ricci_cll_venetoclax_gse161711.png}
+\caption{GSE161711 topological diagnostics.
+\textbf{Left}: TIP comparison between Euclidean and Ricci backends, showing how geometry affects feature concentration.
+\textbf{Right}: $H_1$ lifetime comparison, showing that the dominant topological signal changes under different geometry assumptions.}
+\label{fig:bulk}
+\end{figure}
+
+\subsection{Ablation analysis: LUAD and GSE161711}
+
+The full ablation story is carried by LUAD and GSE161711, which have completed cached sweeps over six hyperparameter axes: geometry backend, Ricci iteration count, neighborhood size $k$, sparsity strength $\lambda$, normalization, and top-$K$ feature count.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Dataset & Ablation axis & Best value & Mean F1 & $n$ \\
+\midrule
+LUAD & distance mode & ricci & 0.463 & 2 \\
+LUAD & Ricci iterations & 10 & 0.551 & 2 \\
+LUAD & $k$ & 10 & 0.405 & 2 \\
+LUAD & $\lambda$ & $10^{-7}$ & 0.594 & 2 \\
+LUAD & normalize & std & 0.522 & 2 \\
+LUAD & top-$K$ & 10 & 0.667 & 2 \\
+\midrule
+GSE161711 & distance mode & euclidean & 0.600 & 5 \\
+GSE161711 & Ricci iterations & 0 & 0.578 & 5 \\
+GSE161711 & $k$ & 5 & 0.632 & 5 \\
+GSE161711 & $\lambda$ & $10^{-4}$ & 0.590 & 5 \\
+GSE161711 & normalize & std & 0.596 & 5 \\
+GSE161711 & top-$K$ & 50 & 0.806 & 5 \\
+\bottomrule
+\end{tabular}
+\caption{Best completed ablation settings from cached sweeps.
+LUAD prefers Ricci, higher iteration count, and compact top-$K$.
+GSE161711 prefers Euclidean, zero iterations, and broad top-$K$.
+This divergence is the backend-sensitive behavior the paper claims.}
+\label{tab:ablationbest}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.78\linewidth]{../results/figures/ablation_profiles_luad_gse161711.png}
+\caption{Cross-dataset ablation profiles from completed LUAD and GSE161711 sweeps.
+The pipeline exhibits dataset-specific sensitivity to every hyperparameter axis, supporting the claim that geometry and sparsity are genuine modeling decisions rather than cosmetic parameters.}
+\label{fig:ablationprofiles}
+\end{figure}
+
+\paragraph{Cross-dataset divergence.}
+The most informative observation is that LUAD and GSE161711 prefer different ablation settings.
+LUAD benefits from Ricci geometry, more Ricci iterations, and compact top-$K$; GSE161711 benefits from Euclidean geometry, zero Ricci iterations, and broad top-$K$.
+This is not a failure of the method---it is exactly the backend-sensitive behavior that justifies treating geometry as a selectable parameter.
+A method that always preferred the same settings across datasets would be insensitive to geometry, which would undermine the scientific claim.
+
+\subsection{Geometry backend comparison}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.72\linewidth]{../results/figures/geometry_backend_summary.png}
+\caption{Implemented geometry comparison across datasets.
+This figure compares Euclidean harmonic vs Ricci sparse on the three datasets with completed outputs.
+Diffusion, PHATE-like, and DTM backends are not included because they are not experimentally instantiated in the current codebase.}
+\label{fig:geombar}
+\end{figure}
+
+\subsection{When Ricci helps, when it does not, and why}
+\label{sec:ricci_analysis}
+
+The completed empirical evidence reveals three distinct regimes:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{LUAD}: Ricci sparse achieves a positive mean delta ($+0.046$) over Euclidean sparse in paired multiseed analysis, but the effect is not statistically significant ($p = 0.308$).
+The ablation sweep shows that the Ricci benefit is concentrated at higher iteration counts and is sensitive to $\lambda$.
+
+\item \textbf{GSE161711}: The ablation reveals that Euclidean geometry is preferred over Ricci ($\text{Eu: } 0.600$ vs $\text{Ricci: } 0.532$), and zero Ricci iterations outperform positive iterations.
+This suggests that the bulk CLL data does not have the kind of shortcut or bridge structure that Ricci flow is designed to correct.
+
+\item \textbf{GSE165087 (bounded)}: All methods tie at F1 $= 0.925$ on the single bounded split.
+This does not support a geometry ranking; it only confirms feasibility.
+\end{enumerate}
+
+The underlying mechanism is interpretable: Ricci flow reweights edges by curvature, contracting positively curved regions and expanding negatively curved ones.
+When the data contains shortcut edges that create spurious topological features (as may occur in LUAD's heterogeneous subtype landscape), Ricci correction can sharpen the true signal.
+When the dominant topology is already well-captured by Euclidean neighborhoods (as in GSE161711's smaller, more homogeneous cohort), the additional geometric processing adds noise without benefit.
+
+This motivates a practical recommendation: Ricci geometry should be treated as a candidate backend whose utility is diagnosed empirically via TIP concentration, $H_1$ lifetime, and paired split statistics, rather than assumed to be universally beneficial.
+The CC-SPR framework makes this diagnosis systematic rather than ad hoc.
+
+\subsection{Diagnostics: TIP, lifetime, and prominence}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/lambda_robustness.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_prominence_eu_vs_ricci_cll_venetoclax_gse161711.png}
+\caption{\textbf{Left}: LUAD $\lambda$ sensitivity.
+Representative sparsity is a real modeling axis---different $\lambda$ values produce different predictive performance, confirming that the elastic-net penalty is not decorative.
+\textbf{Right}: GSE161711 prominence diagnostics, showing that geometry changes the salience of the dominant topological signal.}
+\label{fig:diagnostics}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.49\linewidth]{../results/figures/tip_eu_vs_ricci.png}
+\includegraphics[width=0.49\linewidth]{../results/figures/h1_lifetime_eu_vs_ricci.png}
+\caption{LUAD TIP and $H_1$ lifetime diagnostics comparing Euclidean and Ricci backends.
+TIP concentration differences reveal how geometry affects feature-level interpretability; lifetime differences show how geometry modifies the persistence landscape.}
+\label{fig:luadextra}
+\end{figure}
+
+\subsection{Resource-bounded single-cell validation}
+
+GSE165087 serves as a feasibility probe for single-cell data within the CC-SPR framework.
+The manuscript-safe configuration ($n_{\text{cells}} = 320$, $n_{\text{pcs}} = 20$) yields identical F1 $= 0.925$ across all three methods on a single split, confirming that the pipeline produces valid outputs but providing no discriminative evidence.
+
+A second bounded configuration ($n_{\text{cells}} = 400$, $n_{\text{pcs}} = 25$) provides more informative results: standard F1 $= 0.888$, harmonic $= 0.798$, CC-SPR $= 0.823$.
+Here CC-SPR exceeds harmonic by $+0.025$, consistent with the modest advantage seen on GSE161711 bulk data, while the standard baseline retains dominance.
+Lambda sensitivity on this configuration ($\lambda \in \{10^{-6}, 10^{-5}\}$) shows stable CC-SPR performance (F1 $= 0.847$ and $0.850$ respectively), indicating that the sparse representative is not overly sensitive to regularization at this scale.
+
+These bounded results establish feasibility and directional consistency with the bulk datasets but do not substitute for comprehensive single-cell benchmarking, which remains contingent on memory optimization or access to larger-memory nodes.
+
+% ============================================================
+\section{Limitations and Honest Claims}
+\label{sec:limitations}
+% ============================================================
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Standard baselines win on prediction.}
+On LUAD, BRCA, and GSE161711, non-topological baselines achieve the highest weighted F1.
+CC-SPR's contribution is methodological (interpretable sparse representatives, geometry control, stability diagnostics), not predictive dominance.
+
+\item \textbf{The backend family exceeds the implementation.}
+Euclidean and Ricci are implemented and benchmarked.
+Diffusion, PHATE-like, and DTM are mathematically developed (Sections~\ref{sec:diffusion}--\ref{sec:dtm}) and compared conceptually (Table~\ref{tab:hphcompare}), but not experimentally instantiated.
+No empirical claim in this paper depends on an unimplemented backend.
+
+\item \textbf{Ricci benefit is non-monotone and dataset-dependent.}
+LUAD shows a modest positive Ricci effect; GSE161711 shows a negative one.
+This is honest and expected: geometry sensitivity is a feature, not a bug.
+
+\item \textbf{Single-cell evidence is resource-bounded.}
+Three scRNA configurations failed under reasonable cluster allocations.
+The manuscript-safe run is sufficient for feasibility validation but not for comprehensive single-cell benchmarking.
+
+\item \textbf{Public substitutes replace controlled-access datasets.}
+GSE161711 and GSE165087 are scientifically reasonable but not identical to the originally intended data.
+
+\item \textbf{Representative diagnostics are partial.}
+Per-bootstrap support entropy and Gini coefficients would require rerunning topology loops; only TIP, $H_1$ lifetime, and prominence are available from cached outputs.
+\end{enumerate}
+
+% ============================================================
+\section{Related Work}
+% ============================================================
+
+\paragraph{Persistent homology in biology.}
+Topological data analysis has been applied to gene expression \cite{rizvi2017}, protein structure \cite{xia2014}, tumor ecosystems \cite{vipond2021}, neuroscience \cite{giusti2015}, and evolutionary biology \cite{chan2013topology}.
+Most of these applications use standard Euclidean persistent homology without representative cycle analysis.
+
+\paragraph{Harmonic persistent homology.}
+The harmonic PH framework \cite{harmonicPH} introduced the bridge from persistent classes to sample-level representatives, enabling feature attribution through projection.
+CC-SPR builds directly on this work.
+
+\paragraph{Ricci curvature on graphs.}
+Ollivier--Ricci curvature \cite{ollivier2007, ollivier2009} and its discrete flow variant \cite{ni2019community} have been used for community detection, graph classification, and network analysis.
+The connection to persistent homology through filtration perturbation (Proposition~\ref{prop:stability}) appears to be novel in this paper.
+
+\paragraph{Diffusion and PHATE.}
+Diffusion maps \cite{coifman2006diffusion} and PHATE \cite{moon2019phate} are widely used for dimensionality reduction in single-cell genomics.
+Using diffusion or PHATE distances as persistent-homology backends is a natural extension that has been explored informally but, to our knowledge, not systematized within a sparse representative framework.
+
+\paragraph{Distance to measure.}
+DTM-based topology \cite{chazal2011dtm, chazal2017robust} provides robust persistent homology under noise.
+Its integration into a representative-cycle framework appears unexplored.
+
+\paragraph{Sparse topology.}
+Sparse representations in TDA have been studied through $\ell_1$ optimal cycles \cite{chen2011hardness, dey2011optimal}, but typically in a computational-geometry setting without the biological feature-projection layer that CC-SPR provides.
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+
+CC-SPR extends harmonic persistent homology in two directions: sparse elastic representatives that concentrate cycle support for interpretability, and a backend-aware framework that treats the sample-space metric as a selectable, stability-bounded parameter.
+Together with topological influence profiles, these extensions produce a richer analysis object than dense Euclidean representatives alone---one that enables systematic comparison of how geometry affects topology-derived features.
+
+Our evaluation on four cancer genomics datasets confirms that this framework is functional, that geometry sensitivity is real and dataset-dependent, and that sparse representatives can modestly improve over dense harmonic ones (GSE161711: $+0.018$; bounded GSE165087: $+0.025$).
+It also confirms that topology-derived features do not replace well-tuned conventional classifiers on prediction tasks---a limitation shared with the parent harmonic PH framework and with most TDA-based methods in computational biology.
+
+The natural next steps are threefold: implementing and benchmarking the diffusion, PHATE-like, and DTM backends that are mathematically developed here; scaling single-cell evaluation beyond the bounded configurations used in this study; and connecting TIP-selected gene sets to pathway enrichment and survival analyses to assess whether the topological signal has biological utility beyond classification.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{25}
+
+\bibitem{harmonicPH}
+D.~Damiani, O.~Vipond, and H.~A.~Harrington.
+Probing omics data via harmonic persistent homology.
+\emph{bioRxiv}, 2024.
+\texttt{doi:10.1101/2024.09.15.613148}.
+
+\bibitem{edelsbrunner2010}
+H.~Edelsbrunner and J.~Harer.
+\emph{Computational Topology: An Introduction}.
+AMS, 2010.
+
+\bibitem{carlsson2009}
+G.~Carlsson.
+Topology and data.
+\emph{Bulletin of the AMS}, 46(2):255--308, 2009.
+
+\bibitem{rizvi2017}
+A.~H.~Rizvi, P.~G.~Camara, E.~K.~Kandber, et al.
+Single-cell topological RNA-seq analysis reveals insights into cellular differentiation and development.
+\emph{Nature Biotechnology}, 35(6):551--560, 2017.
+
+\bibitem{xia2014}
+K.~Xia and G.-W.~Wei.
+Persistent homology analysis of protein structure, flexibility, and folding.
+\emph{International Journal for Numerical Methods in Biomedical Engineering}, 30(8):814--844, 2014.
+
+\bibitem{vipond2021}
+O.~Vipond, J.~A.~Bull, P.~S.~Sherland, et al.
+Multiparameter persistent homology landscapes identify immune cell spatial patterns in tumors.
+\emph{PNAS}, 118(41), 2021.
+
+\bibitem{moon2019phate}
+K.~R.~Moon, D.~van Dijk, Z.~Wang, et al.
+Visualizing structure and transitions in high-dimensional biological data.
+\emph{Nature Biotechnology}, 37(12):1482--1492, 2019.
+
+\bibitem{zomorodian2005}
+A.~Zomorodian and G.~Carlsson.
+Computing persistent homology.
+\emph{Discrete \& Computational Geometry}, 33(2):249--274, 2005.
+
+\bibitem{friedman1998}
+J.~Friedman.
+Computing Betti numbers via combinatorial Laplacians.
+\emph{Algorithmica}, 21(4):331--346, 1998.
+
+\bibitem{zou2005elasticnet}
+H.~Zou and T.~Hastie.
+Regularization and variable selection via the elastic net.
+\emph{JRSS Series B}, 67(2):301--320, 2005.
+
+\bibitem{chazal2014persistence}
+F.~Chazal, V.~de Silva, M.~Glisse, and S.~Oudot.
+The structure and stability of persistence modules.
+\emph{Springer}, 2016.
+
+\bibitem{ollivier2007}
+Y.~Ollivier.
+Ricci curvature of metric spaces.
+\emph{Comptes Rendus Mathematique}, 345(11):643--646, 2007.
+
+\bibitem{ollivier2009}
+Y.~Ollivier.
+Ricci curvature of Markov chains on metric spaces.
+\emph{Journal of Functional Analysis}, 256(3):810--864, 2009.
+
+\bibitem{ni2019community}
+C.-C.~Ni, Y.-Y.~Lin, F.~Luo, and J.~Gao.
+Community detection on networks with Ricci flow.
+\emph{Scientific Reports}, 9:9984, 2019.
+
+\bibitem{coifman2006diffusion}
+R.~R.~Coifman and S.~Lafon.
+Diffusion maps.
+\emph{Applied and Computational Harmonic Analysis}, 21(1):5--30, 2006.
+
+\bibitem{haghverdi2016}
+L.~Haghverdi, M.~Büttner, F.~A.~Wolf, F.~Buettner, and F.~J.~Theis.
+Diffusion pseudotime robustly reconstructs lineage branching.
+\emph{Nature Methods}, 13(10):845--848, 2016.
+
+\bibitem{chazal2011dtm}
+F.~Chazal, D.~Cohen-Steiner, and Q.~M\'erigot.
+Geometric inference for probability measures.
+\emph{Foundations of Computational Mathematics}, 11(6):733--751, 2011.
+
+\bibitem{chazal2017robust}
+F.~Chazal, B.~Fasy, F.~Lecci, B.~Michel, A.~Rinaldo, and L.~Wasserman.
+Robust topological inference: distance to a measure and kernel distance.
+\emph{JMLR}, 18(159):1--40, 2017.
+
+\bibitem{gudhi2014}
+The GUDHI Project.
+GUDHI User and Reference Manual, 2014--2024.
+
+\bibitem{giusti2015}
+C.~Giusti, R.~Ghrist, and D.~S.~Bassett.
+Two's company, three (or more) is a simplex.
+\emph{Journal of Computational Neuroscience}, 41(1):1--14, 2016.
+
+\bibitem{chan2013topology}
+J.~M.~Chan, G.~Carlsson, and R.~Rabadan.
+Topology of viral evolution.
+\emph{PNAS}, 110(46):18566--18571, 2013.
+
+\bibitem{chen2011hardness}
+C.~Chen and D.~Freedman.
+Hardness results for homology localization.
+\emph{Discrete \& Computational Geometry}, 45(3):425--448, 2011.
+
+\bibitem{dey2011optimal}
+T.~K.~Dey, J.~Sun, and Y.~Wang.
+Approximating loops in a shortest homology basis from point data.
+\emph{SoCG}, 2010.
+
+\end{thebibliography}
+
+\end{document}

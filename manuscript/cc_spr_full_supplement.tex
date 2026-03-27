@@ -1,0 +1,188 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\title{CC-SPR Supplement\\\large Resource-Bounded Execution and Supporting Results}
+\author{CC-SPR Hellbender Continuation}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Repository and data inventory}
+Repository root: \texttt{/cluster/VAST/kazict-lab/e/lesion\_phes/code/ccspr}.
+
+Key data artifacts:
+\begin{itemize}[leftmargin=1.5em]
+\item LUAD anchor results: \texttt{results/metrics.csv}, \texttt{results/main\_results.csv}, \texttt{results/ablation\_summary.csv}
+\item Bulk substitute: \texttt{data/cll\_venetoclax/processed\_matrix.tsv}
+\item Single-cell substitute: \texttt{data/cll\_rs\_scrna/data.h5ad}
+\item BRCA support: \texttt{results/brca/metrics.csv}
+\end{itemize}
+
+\section{Execution envelope}
+Table~\ref{tab:jobs} records the completed job history most relevant to manuscript construction. The purpose of this table is not to dramatize failure, but to document why the paper adopts a bounded single-cell policy rather than silently omitting the issue.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllll}
+\toprule
+Job ID & Name & State & Elapsed & Requested memory \\
+\midrule
+12833129 & bulk substitute & COMPLETED & 00:39:11 & 48G \\
+12839604 & LUAD multiseed & COMPLETED & 00:03:54 & 96G \\
+12833143 & scRNA full & OUT\_OF\_MEMORY & 16:43:25 & 96G \\
+12844071 & scRNA fast-track & TIMEOUT & 20:00:06 & 96G \\
+12849765 & scRNA low-memory & OUT\_OF\_MEMORY & 11:25:59 & 48G \\
+12874303 & scRNA manuscript-safe & COMPLETED & 00:07:49 & 32G \\
+\bottomrule
+\end{tabular}
+\caption{Runtime and memory summary of the main jobs that shaped the manuscript policy. This table functions as the paper's runtime/cost summary for the resource-bounded geometry study.}
+\label{tab:jobs}
+\end{table}
+
+Observed maximum resident sets from Slurm accounting were approximately 100.3~GB for the full scRNA run, 75.2~GB for the fast-track run, and 49.7~GB for the low-memory run. These observations justified halting further repetition of those configurations.
+
+\section{Important code-level correction}
+The preprocessed single-cell loader originally reused the full stored PCA matrix whenever \texttt{X\_pca} was present in the \texttt{.h5ad} file, even if a smaller \texttt{n\_pcs} was requested in the configuration. This meant prior ``reduced'' configurations did not actually reduce the PCA feature dimension in the preprocessed path. The loader was corrected so the manuscript-safe run respects the requested PCA dimension.
+
+\section{Manuscript-safe single-cell configuration}
+The bounded single-cell policy is implemented by:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{configs/cll\_rs\_scrna\_manuscript\_safe.yaml}
+\item \texttt{experiments/run\_cll\_rs\_scrna\_manuscript\_safe.py}
+\item \texttt{slurm/hellbender\_run\_cll\_scrna\_gse165087\_manuscript\_safe.sbatch}
+\end{itemize}
+
+The manuscript-safe configuration uses:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{max\_cells = 320}
+\item \texttt{n\_pcs = 20}
+\item one train/test split
+\item one harmonic bootstrap
+\item one CC-SPR bootstrap
+\item no ablation sweep
+\end{itemize}
+
+It also writes:
+\begin{itemize}[leftmargin=1.5em]
+\item dataset metadata JSON
+\item checkpoint JSON
+\item partial metrics and summary CSVs
+\item figure-ready \texttt{.npz} arrays
+\end{itemize}
+These partial outputs are intended to prevent hours of silent execution and to preserve useful state if a bounded run is interrupted. In the completed manuscript-safe run, the logging and checkpoint path worked as intended and the run finished without approaching its memory limit.
+
+\subsection{Resource-bounded single-cell ablations}
+To add a minimal sensitivity analysis without recreating the earlier OOM / timeout pattern, the repository now includes:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{configs/cll\_rs\_scrna\_ablation\_safe.yaml}
+\item \texttt{experiments/run\_cll\_rs\_scrna\_ablation\_safe.py}
+\item \texttt{scripts/run\_scrna\_ablation\_safe\_if\_needed.sh}
+\item \texttt{slurm/hellbender\_run\_cll\_scrna\_gse165087\_ablation\_safe.sbatch}
+\end{itemize}
+
+This path is strictly smaller-risk than the previously failed scRNA sweeps and is intentionally limited to a single sensitivity axis:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{max\_cells = 400}
+\item \texttt{n\_hvg = 1000}
+\item \texttt{n\_pcs = 25}
+\item one train/test split
+\item one harmonic bootstrap
+\item one CC-SPR bootstrap
+\item lambda-only sensitivity: $\lambda \in \{10^{-6}, 10^{-5}\}$
+\item no multi-axis grid, no multi-split sweep, no multi-bootstrap sweep
+\end{itemize}
+
+The runner writes incremental state before the end of the job:
+\begin{itemize}[leftmargin=1.5em]
+\item checkpoint JSON
+\item dataset metadata JSON
+\item partial metrics CSV
+\item partial main-results CSV
+\item partial ablation-summary CSV
+\item figure-ready \texttt{.npz} arrays
+\end{itemize}
+These files are the safeguard against silent login-node interruption and make the single-cell ablation path resumable in a way the earlier heavy runs were not.
+
+\section{Completed quantitative summaries reused in the main paper}
+\subsection{LUAD paired statistics}
+\begin{verbatim}
+comparison,n_pairs,mean_delta,std_delta,median_delta,paired_t_stat,paired_t_p,wilcoxon_stat,wilcoxon_p
+ccspr_vs_harmonic,18,0.0272454,0.1732955,0.0335209,0.6670,0.5137,69.0,0.4951
+ccspr_vs_standard,18,-0.1860557,0.1725616,-0.1398494,-4.5744,0.000269,10.0,0.000328
+ricci_sparse_vs_euclidean_sparse,18,0.0460450,0.1857264,0.0537662,1.0518,0.3076,59.0,0.2645
+\end{verbatim}
+
+\subsection{BRCA support}
+The preserved BRCA metrics file contains two splits:
+\begin{verbatim}
+standard: 0.6060, 0.6164
+harmonic: 0.5418, 0.4158
+ccspr:   0.4197, 0.3996
+\end{verbatim}
+These values are used only as supporting evidence and are not promoted to a primary claim.
+
+\section{Figure and table inventory}
+Existing figure files used by the main paper or its geometry-study framing:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{results/figures/f1\_bars\_ci.png}
+\item \texttt{results/figures/paired\_deltas\_luad\_multiseed.png}
+\item \texttt{results/figures/geometry\_backend\_summary.png}
+\item \texttt{results/figures/tip\_eu\_vs\_ricci.png}
+\item \texttt{results/figures/h1\_lifetime\_eu\_vs\_ricci.png}
+\item \texttt{results/figures/h1\_prominence\_eu\_vs\_ricci.png}
+\item \texttt{results/figures/tip\_eu\_vs\_ricci\_cll\_venetoclax\_gse161711.png}
+\item \texttt{results/figures/h1\_lifetime\_eu\_vs\_ricci\_cll\_venetoclax\_gse161711.png}
+\item \texttt{results/figures/f1\_bars\_ci\_cll\_rs\_scrna\_gse165087.png}
+\item \texttt{results/figures/tip\_eu\_vs\_ricci\_cll\_rs\_scrna\_gse165087.png}
+\item \texttt{results/figures/ablation\_profiles\_luad\_gse161711.png}
+\item \texttt{results/figures/ablation\_best\_summary.png}
+\end{itemize}
+
+Lightweight derived tables created from existing outputs only:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{results/tables/geometry\_backend\_summary.csv}
+\item \texttt{results/tables/geometry\_diagnostics\_summary.csv}
+\item \texttt{results/tables/representative\_diagnostics\_summary.csv}
+\item \texttt{results/tables/geometry\_runtime\_cost\_summary.csv}
+\item \texttt{results/tables/ablation\_profiles\_combined.csv}
+\item \texttt{results/tables/ablation\_best\_summary.csv}
+\item \texttt{results/tables/ablation\_best\_luad.csv}
+\item \texttt{results/tables/ablation\_best\_gse161711.csv}
+\end{itemize}
+
+\section{Implemented geometry-study scope}
+The final paper is a geometry-sensitive sparse PH manuscript with empirical geometry claims restricted to the implemented Euclidean/Ricci study. Diffusion, PHATE-like, and DTM are retained in the theory and comparison framing because they are scientifically coherent backends for the method family, but they are not presented as completed benchmark results in this repository state.
+
+Representative sparsity/entropy tables were also not recomputed post hoc. The cached outputs preserve TIP and H1 diagnostics, but not a full archive of per-bootstrap support vectors sufficient for honest entropy/support-size summaries without rerunning topology loops.
+
+\section{What was intentionally deferred}
+The following items were intentionally moved out of the critical path for the manuscript:
+\begin{enumerate}[leftmargin=1.5em]
+\item repeating the previously failed heavy single-cell configurations,
+\item large single-cell ablation sweeps,
+\item any multi-split or multi-bootstrap single-cell grid beyond the tiny bounded lambda check,
+\item diffusion / PHATE-like / DTM backend experiments prior to implementation,
+\item heavyweight survival or enrichment pipelines not already present in the repository outputs,
+\item post hoc representative entropy/support-size recomputation that would require rerunning topology loops.
+\end{enumerate}
+
+\section{Reproducibility notes}
+Important reproducibility and policy documents in the repository include:
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{results/resource\_safe\_gap\_report.md}
+\item \texttt{results/resource\_safe\_execution\_note.md}
+\item \texttt{results/final\_geometry\_gap\_report.md}
+\item \texttt{results/final\_run\_report\_hellbender.md}
+\item \texttt{results/manuscript\_upgrade\_report.md}
+\item \texttt{results/logs/manuscript\_job\_provenance\_scrna\_latest.md}
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,596 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\captionsetup{font=small}
+
+\definecolor{keyconcept}{RGB}{230,243,255}
+\definecolor{takeaway}{RGB}{255,243,224}
+\definecolor{analogy}{RGB}{232,245,233}
+
+\newtcolorbox{keyconcept}{colback=keyconcept,colframe=blue!40,title=Key Concept,fonttitle=\bfseries}
+\newtcolorbox{takeaway}{colback=takeaway,colframe=orange!50,title=Takeaway for Biologists,fonttitle=\bfseries}
+\newtcolorbox{analogy}{colback=analogy,colframe=green!40,title=Biological Analogy,fonttitle=\bfseries}
+
+\title{\textbf{CC-SPR: A Biologist's Guide}\\[8pt]
+\large What the Experiments Did, What They Found, and Why It Matters\\for Cancer Genomics and Gene Discovery}
+\author{}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Executive Summary: What Is This Paper About?}
+% ============================================================
+
+Imagine you have RNA-seq data from 60 lung cancer patients. Standard approaches find differentially expressed genes or cluster patients into subtypes. But what if the interesting biology isn't in the clusters themselves---it's in the \emph{connections between them}? What if there are transitional states, feedback loops, or bridging populations that create \textbf{loop-like patterns} in your data?
+
+\textbf{Persistent homology} is a mathematical tool that detects these loops (and other shapes) in high-dimensional data. The problem: it tells you \emph{that} a loop exists, but not \emph{which genes} are responsible for it.
+
+\textbf{Harmonic persistent homology} (Gurnari et al., 2025; Basu \& Cox, 2024) solved half of this problem by finding a ``representative cycle'' for each loop---essentially tracing which patient-to-patient connections form the loop, and then projecting back to identify involved genes. But the gene lists it produces are long and diffuse (hundreds of genes at similar low weights), making biological interpretation difficult.
+
+\textbf{CC-SPR} (this paper) extends harmonic PH in two ways:
+\begin{enumerate}
+    \item \textbf{Sparse representatives}: Instead of spreading signal across hundreds of genes, CC-SPR concentrates it onto a compact set (e.g., 15--50 genes)---small enough for pathway analysis and biological hypothesis generation.
+    \item \textbf{Multiple ``lenses'' (geometry backends)}: Instead of assuming one fixed way to measure patient-to-patient distance, CC-SPR tests five different distance measures and shows that \emph{which genes you find depends on how you measure distance}.
+\end{enumerate}
+
+The paper tests this on three cancer datasets and finds that the best distance measure is different for each dataset---confirming that geometry should be a deliberate choice, not a hidden assumption.
+
+% ============================================================
+\section{Background: What Was Gurnari et al. Trying to Answer?}
+% ============================================================
+
+\subsection{The interpretability gap in topological data analysis}
+
+Topological data analysis (TDA) has been applied to gene expression data since at least 2017 (Rizvi et al., \emph{Nature Biotechnology}). The standard output is a \textbf{persistence barcode}---a set of bars, each representing a topological feature (a cluster, a loop, a void) and how long it ``persists'' as you vary a distance threshold.
+
+\begin{keyconcept}
+A \textbf{persistence barcode} is like a list of structural features in your data:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Short bars} = noise (features that appear and disappear quickly)
+    \item \textbf{Long bars} = robust structural features (clusters, loops, voids that persist across many distance scales)
+\end{itemize}
+The longer a bar, the more ``real'' the underlying structure is likely to be.
+\end{keyconcept}
+
+The problem: a barcode tells you \emph{that} a loop exists in your patient expression landscape, but it doesn't tell you:
+\begin{itemize}
+    \item Which patients participate in the loop?
+    \item Which genes drive the loop?
+    \item Is the loop caused by a cell-cycle program, a subtype transition, or technical noise?
+\end{itemize}
+
+\subsection{What Gurnari et al. contributed}
+
+Gurnari et al. (``Probing omics data via harmonic persistent homology,'' \emph{Scientific Reports}, 2025) applied the mathematical framework of harmonic persistent homology---originally formulated by Basu \& Cox (\emph{SIAM J. Appl. Algebra Geom.}, 2024)---to omics data. Their key idea:
+
+\begin{enumerate}
+    \item For each persistent loop (H1 bar) in the barcode, compute a \textbf{harmonic representative}---the smoothest possible cycle that represents that topological class.
+    \item \textbf{Project} this cycle back to gene space through the data matrix, producing a weight for each gene that reflects how much it contributes to the loop.
+\end{enumerate}
+
+\begin{analogy}
+Think of it like this: you detect that there's a circular highway connecting several cities (= patients). The harmonic representative traces which roads (= patient-to-patient relationships) form the highway. Projecting to gene space tells you which goods (= genes) are being transported along those roads. Now you know which genes are ``active'' along the topological loop.
+\end{analogy}
+
+\subsection{The two limitations Gurnari et al. left open}
+
+\textbf{Limitation 1: The gene lists are too long.} The harmonic approach minimizes an $\ell_2$ (sum-of-squares) energy, which spreads weight across \emph{all} edges roughly equally. When you project to genes, you get hundreds of genes at similar low weights---too many for meaningful pathway analysis or biological hypothesis generation.
+
+\textbf{Limitation 2: Only Euclidean distance was used.} Gurnari et al. used standard Euclidean distance between patients in PCA space. But biological data has curvature, variable density, manifold structure, and noise. Different ways of measuring distance can reveal different biological structures.
+
+% ============================================================
+\section{What CC-SPR Does Differently}
+\label{sec:ccspr}
+% ============================================================
+
+\subsection{Sparse representatives: From 200 genes to 15}
+
+CC-SPR replaces the harmonic ($\ell_2$) objective with an \textbf{elastic-net} objective---the same type of regularization used in penalized regression (LASSO + Ridge). This adds an $\ell_1$ penalty that drives small gene weights to exactly zero, producing a \textbf{sparse} representative.
+
+\begin{keyconcept}
+\textbf{Elastic net in CC-SPR works like elastic net in regression:}
+\begin{itemize}[leftmargin=1.5em]
+    \item The $\ell_1$ (LASSO) penalty promotes \textbf{sparsity}---genes with weak topological influence get zeroed out
+    \item The $\ell_2$ (Ridge) penalty provides \textbf{stability}---prevents numerical instability when many edges are correlated
+    \item The parameter $\lambda_1$ controls how sparse the result is (higher = fewer genes)
+\end{itemize}
+The result: instead of 200 genes at similar low weights, you get 15--50 genes at meaningful weights.
+\end{keyconcept}
+
+\begin{takeaway}
+For a geneticist: sparse representatives give you a \textbf{gene panel} rather than a transcriptome-wide haze. You can take the top 15 genes, run them through KEGG/Reactome/MSigDB, and test whether they belong to a known pathway. With dense (harmonic) representatives, this is much harder because the signal is diluted.
+\end{takeaway}
+
+\subsection{Five geometry backends: Different ``lenses'' on your data}
+
+CC-SPR treats the patient-to-patient distance metric as a choosable parameter. Five options are implemented:
+
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Euclidean} (baseline): Standard straight-line distance in PCA space. Simple, fast, but ignores manifold structure.
+
+    \item \textbf{Ollivier--Ricci curvature}: Measures how ``curved'' the neighborhood around each patient pair is. Edges connecting distinct subtypes (``bridge edges'') get upweighted, making subtype boundaries sharper.
+
+    \begin{analogy}
+    Imagine two clusters of patients (e.g., two lung cancer subtypes) connected by a thin bridge of transitional patients. In Euclidean distance, the bridge looks short---the subtypes merge early. Ricci curvature detects that the bridge is geometrically abnormal (negatively curved) and stretches it, keeping the subtypes separate longer. This can reveal topological features (loops at the bridge) that Euclidean misses.
+    \end{analogy}
+
+    \item \textbf{Diffusion distance}: Based on random walks on a patient-patient graph. Captures how well-connected two patients are through the network, not just their straight-line distance. Good at denoising local measurement error.
+
+    \begin{analogy}
+    Instead of asking ``how far apart are patients A and B in expression space?'', diffusion distance asks ``if I randomly walk through the patient network starting at A, how likely am I to reach B?'' Patients connected through many paths are ``close'' even if their Euclidean distance is large. This naturally handles manifold structure (e.g., differentiation trajectories).
+    \end{analogy}
+
+    \item \textbf{PHATE-like (potential distance)}: Transforms random-walk probabilities through a logarithm, measuring how \emph{differently} two patients explore the network. Related to information theory (KL divergence). Designed for trajectory data (e.g., cell differentiation).
+
+    \item \textbf{Distance-to-Measure (DTM)}: Smooths distances using local density. Outlier patients in sparse regions get their distances inflated, preventing them from creating spurious topological features. Robust to batch effects, dropout, and technical outliers.
+
+    \begin{analogy}
+    In scRNA-seq, some cells are ``outliers'' due to technical issues (doublets, failed libraries). In Euclidean space, these outliers can create false loops in the topology. DTM detects that these cells are in sparse regions and inflates their distances, effectively downweighting their topological influence. It's like giving less credibility to patients with poor-quality data.
+    \end{analogy}
+\end{enumerate}
+
+\subsection{Topological Influence Profiles (TIP): Bootstrap stability}
+
+CC-SPR adds a \textbf{bootstrap stability diagnostic} called TIP (Topological Influence Profile):
+
+\begin{enumerate}
+    \item Resample the patients with replacement (bootstrap)
+    \item Re-run the full pipeline: distance $\to$ topology $\to$ sparse representative $\to$ gene projection
+    \item Record which genes are in the top-$K$ for each bootstrap
+    \item TIP(gene $j$) = fraction of bootstraps where gene $j$ was selected
+\end{enumerate}
+
+\begin{takeaway}
+TIP tells you how \textbf{reproducible} each gene's topological importance is. A gene with TIP $= 0.95$ is selected in 95\% of bootstraps---it's a robust topological marker. A gene with TIP $= 0.10$ is noisy. This is directly analogous to bootstrap-aggregated variable importance in random forests, which geneticists already use.
+\end{takeaway}
+
+% ============================================================
+\section{The Experiments: What Was Tested and Why}
+\label{sec:experiments}
+% ============================================================
+
+\subsection{Three cancer datasets, three different roles}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.5cm}p{2.5cm}p{1cm}p{1.5cm}p{4cm}}
+\toprule
+\textbf{Dataset} & \textbf{Biology} & $n$ & \textbf{Type} & \textbf{Role in the study} \\
+\midrule
+TCGA-LUAD & Lung adenocarcinoma subtypes (TRU, PI, PP) & 60 & Bulk RNA-seq & Main benchmark: are different geometries detecting different biology? \\
+\midrule
+GSE161711 & CLL patients on venetoclax (BCL-2 inhibitor) & 96 & Bulk RNA-seq & Validation: does the backend-dependent pattern replicate in a different disease? \\
+\midrule
+GSE165087 & CLL / Richter syndrome cells & 320 & scRNA-seq & Feasibility: can this scale to single-cell data? \\
+\bottomrule
+\end{tabular}
+\caption{The three datasets and their roles.}
+\end{table}
+
+\textbf{Why these datasets?}
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{LUAD} has well-characterized molecular subtypes with known transitional states between them---exactly the kind of structure where topological loops should appear.
+    \item \textbf{GSE161711} involves venetoclax resistance in CLL, where resistant cells may rewire apoptotic pathways (MCL-1, BCL-XL upregulation, NF-$\kappa$B activation). These resistance transitions could create topological bridges between sensitive and resistant states.
+    \item \textbf{GSE165087} tests whether the approach works at single-cell resolution, where each ``sample'' is a cell rather than a bulk patient.
+\end{itemize}
+
+\subsection{What experiments were run}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.5cm}p{8.5cm}}
+\toprule
+\textbf{Experiment} & \textbf{What it asks} \\
+\midrule
+Five-backend benchmark & Does the choice of distance metric change which genes are found and how well they classify patients? \\
+\midrule
+Lambda ($\lambda$) ablation & How sensitive are results to the sparsity parameter? Does the same $\lambda$ work for all geometries? \\
+\midrule
+Multiseed paired statistics (LUAD only) & Over 18 random train/test splits, does Ricci geometry consistently outperform Euclidean? \\
+\midrule
+Topological diagnostics & How do the topological features themselves (lifetime, support size, entropy) change across backends? \\
+\midrule
+Baseline comparison & How does the topology-based approach compare to standard (non-topological) classifiers? \\
+\bottomrule
+\end{tabular}
+\caption{Summary of experiments.}
+\end{table}
+
+\subsection{The pipeline in plain language}
+
+For each dataset and each geometry backend, the pipeline does:
+
+\begin{enumerate}
+    \item \textbf{Compute distances}: Measure patient-to-patient distance using the chosen backend (Euclidean, Ricci, diffusion, PHATE-like, or DTM)
+    \item \textbf{Build a filtration}: Gradually connect patients who are ``close enough'' as you increase a distance threshold. This creates a growing network.
+    \item \textbf{Find topological loops}: As the network grows, loops appear and disappear. Record when each loop is ``born'' and when it ``dies'' (the persistence barcode).
+    \item \textbf{Find the sparse representative}: For the most persistent H1 loop, find the sparsest cycle that still represents it (elastic-net optimization).
+    \item \textbf{Project to genes}: Map the cycle edges back to gene weights through the data matrix. Genes with high weights are topologically important.
+    \item \textbf{Bootstrap for stability}: Repeat steps 1--5 on resampled data. Genes selected consistently across bootstraps (high TIP) are robust.
+    \item \textbf{Classify}: Use the top-$K$ TIP genes as features in a random forest classifier. Report weighted F1 score.
+\end{enumerate}
+
+% ============================================================
+\section{Results: What the Experiments Found}
+\label{sec:results}
+% ============================================================
+
+\subsection{Finding 1: The best geometry depends on the dataset}
+
+This is the paper's central result.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Backend} & \textbf{LUAD F1} & \textbf{GSE161711 F1} \\
+\midrule
+Euclidean & 0.434 (4th) & \textbf{0.748} (1st) \\
+Ricci & 0.501 (2nd) & 0.594 (3rd) \\
+Diffusion & 0.500 (3rd) & 0.555 (4th) \\
+PHATE-like & 0.355 (5th) & 0.540 (5th) \\
+DTM & \textbf{0.532} (1st) & 0.618 (2nd) \\
+\bottomrule
+\end{tabular}
+\caption{Backend rankings reverse between datasets. Bold = best.}
+\end{table}
+
+\begin{takeaway}
+\textbf{The ranking completely flips.} On lung cancer (LUAD), the outlier-robust DTM distance finds the best gene set. On CLL (GSE161711), plain Euclidean distance wins by a wide margin. This means there is no universal ``best distance''---the right choice depends on the data structure.
+
+\textbf{Why this matters for biologists}: If you run TDA on your data with only Euclidean distance, you might miss the best gene set. CC-SPR's multi-backend approach lets you systematically test which geometry is most informative for \emph{your} dataset.
+\end{takeaway}
+
+\paragraph{Why does DTM win on LUAD?}
+LUAD has heterogeneous subtypes (TRU, PI, PP) with transitional samples between them. Some of these transitional samples may be outliers or have noisy expression profiles. DTM downweights distances from samples in sparse regions, effectively suppressing noise from these transitional/outlier samples and concentrating the topological signal on the core subtype structure.
+
+\paragraph{Why does Euclidean win on GSE161711?}
+GSE161711 is a cleaner, more homogeneous bulk RNA-seq dataset where the drug-resistance signal aligns well with the dominant variance axes. The patient neighborhoods in PCA space already capture the relevant biology. Adding curvature correction or diffusion-based transformations introduces unnecessary perturbation.
+
+\subsection{Finding 2: Different backends find different genes}
+
+Each backend produces a different set of topologically important genes:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Backend} & \textbf{LUAD support} & \textbf{GSE161711 support} & \textbf{TIP concentration} \\
+\midrule
+Euclidean & 50 genes & 59 genes & High (Gini = 0.32) \\
+Ricci & 71 genes & 95 genes & Low (Gini = 0.10) \\
+Diffusion & 78 genes & 93 genes & Medium (Gini = 0.18) \\
+PHATE-like & 80 genes & 84 genes & Uniform (Gini = 0.00) \\
+DTM & 76 genes & \textbf{24 genes} & Medium (Gini = 0.16) \\
+\bottomrule
+\end{tabular}
+\caption{Number of genes selected (TIP support) and concentration (Gini coefficient). Higher Gini = more concentrated signal on fewer genes.}
+\end{table}
+
+\begin{takeaway}
+\textbf{DTM on GSE161711 finds only 24 genes}---a 2.5-fold reduction compared to Euclidean's 59. For a geneticist doing pathway analysis, 24 genes is a practical starting point: you can directly look up each gene, check its role in apoptosis/BCL-2 signaling, and generate testable hypotheses. 59 or 95 genes is much harder to work with.
+
+\textbf{PHATE-like distributes weight perfectly uniformly on LUAD (Gini = 0)}. This means it finds no gene is more topologically important than any other---the signal is completely diluted. This is why PHATE-like performs worst on LUAD.
+\end{takeaway}
+
+\subsection{Finding 3: Topological features change across backends}
+
+The backends don't just change which genes are selected---they change the topology itself:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcclcc}
+\toprule
+& \multicolumn{2}{c}{\textbf{LUAD}} & & \multicolumn{2}{c}{\textbf{GSE161711}} \\
+\cmidrule{2-3} \cmidrule{5-6}
+\textbf{Backend} & H1 lifetime & Prominence & & H1 lifetime & Prominence \\
+\midrule
+Euclidean & \textbf{0.080} & \textbf{0.047} & & 0.083 & 0.012 \\
+Ricci & 0.013 & 0.007 & & \textbf{0.125} & \textbf{0.047} \\
+Diffusion & 0.026 & 0.015 & & 0.043 & 0.021 \\
+PHATE-like & 0.011 & 0.009 & & 0.009 & 0.005 \\
+DTM & 0.008 & 0.007 & & 0.049 & 0.017 \\
+\bottomrule
+\end{tabular}
+\caption{H1 lifetime = how long the most persistent loop survives. Prominence = how much it stands out from noise. Higher = more robust topological feature.}
+\end{table}
+
+\begin{keyconcept}
+\textbf{H1 lifetime} tells you how ``real'' the loop is. A loop with lifetime 0.125 (Ricci on GSE161711) is much more persistent than one with lifetime 0.009 (PHATE-like on GSE161711). Longer lifetime generally means the topological feature corresponds to more robust biological structure.
+
+Interestingly, \textbf{the backend that produces the most persistent topology is NOT always the one that produces the best classification}. Ricci creates the longest-lived loop on GSE161711 (0.125) but ranks 3rd on classification (0.594). This means persistent topology captures structure that is \emph{complementary to}---not identical to---what drives class separation.
+\end{keyconcept}
+
+\subsection{Finding 4: Sparsity sensitivity depends on both dataset and backend}
+
+The $\lambda$ parameter controls how sparse the representative is. The ablation tested $\lambda = 10^{-6}$ vs $\lambda = 10^{-5}$:
+
+\begin{itemize}
+    \item \textbf{LUAD}: Completely insensitive. All backends produce identical F1 at both $\lambda$ values. The topological signal is already naturally sparse.
+    \item \textbf{GSE161711}: Sensitive and backend-specific:
+    \begin{itemize}
+        \item Euclidean \emph{decreases} with more sparsity ($-0.051$)
+        \item DTM \emph{increases} with more sparsity ($+0.040$)
+        \item PHATE-like is unchanged
+    \end{itemize}
+\end{itemize}
+
+\begin{takeaway}
+The fact that DTM \emph{improves} with more sparsity on GSE161711 is biologically meaningful: it suggests that DTM's density-smoothed distances produce a representative where the weaker gene signals are noise rather than signal. Removing them (higher $\lambda$) improves classification. In contrast, Euclidean's weaker gene signals are informative, and removing them hurts.
+
+\textbf{Practical implication}: There is no universal ``best $\lambda$''---you should tune it per dataset and per backend, just as you would tune a regularization parameter in penalized regression.
+\end{takeaway}
+
+\subsection{Finding 5: Standard classifiers still win on raw prediction}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Method} & \textbf{LUAD F1} & \textbf{GSE161711 F1} \\
+\midrule
+Standard (no topology) & \textbf{0.767} & \textbf{0.971} \\
+Best CC-SPR backend & 0.532 & 0.748 \\
+Harmonic (dense, original) & 0.404 & 0.585 \\
+\bottomrule
+\end{tabular}
+\caption{Standard non-topological baselines dominate on classification accuracy.}
+\end{table}
+
+The paper is honest about this: standard classifiers (random forest on high-variance genes) outperform all topology-based methods on raw F1.
+
+\begin{takeaway}
+\textbf{This does NOT mean topology is useless.} It means topology and standard classifiers capture \emph{different things}:
+\begin{itemize}
+    \item Standard classifiers exploit \textbf{variance-dominant axes} (the genes with the highest variance between subtypes). This is what PCA + differential expression already captures.
+    \item Topology captures \textbf{loop-like structure} (transitions between states, feedback circuits, bridging populations). These are invisible to variance-based methods.
+\end{itemize}
+The right use of CC-SPR is as a \textbf{complementary analysis}, not a replacement. Use it to ask: ``Beyond the genes that vary most between groups, which genes participate in the topological structure of the data?''
+\end{takeaway}
+
+\subsection{Finding 6: Single-cell results are resource-bounded}
+
+On the scRNA-seq dataset (GSE165087, 320 cells), all five backends produce identical F1 (0.925). The paper explains why:
+
+\begin{itemize}
+    \item The bounded configuration (320 cells, 1 train/test split, 1 bootstrap) has too little statistical resolution to distinguish backends.
+    \item The cell-type labels are well-separated in PCA space, so the classifier saturates regardless of topological features.
+    \item Three larger configurations failed due to memory limits (the largest OOMed at 100 GB after 16 hours).
+\end{itemize}
+
+\begin{takeaway}
+The single-cell component is a \textbf{feasibility demonstration}, not a primary result. Full single-cell evaluation requires memory-optimized implementations and larger compute allocations. This is clearly stated as future work.
+\end{takeaway}
+
+% ============================================================
+\section{The Ablation Story: What Else Was Tested}
+\label{sec:ablation}
+% ============================================================
+
+Beyond the main five-backend benchmark, the paper ran ablations across six hyperparameter axes. The most informative finding is that LUAD and GSE161711 prefer \textbf{opposite settings}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3cm}p{4cm}p{4cm}}
+\toprule
+\textbf{Parameter} & \textbf{Best for LUAD} & \textbf{Best for GSE161711} \\
+\midrule
+Distance mode & Ricci & Euclidean \\
+Ricci iterations & 10 (more curvature) & 0 (no curvature) \\
+$k$ (neighbors) & 10 & 5 \\
+$\lambda$ (sparsity) & $10^{-7}$ (less sparse) & $10^{-4}$ (more sparse) \\
+Normalization & Standard scaling & Standard scaling \\
+Top-$K$ features & 10 (compact) & 50 (broad) \\
+\bottomrule
+\end{tabular}
+\caption{Optimal hyperparameters diverge completely between datasets.}
+\end{table}
+
+\begin{keyconcept}
+The cross-dataset divergence across \emph{every} hyperparameter axis is the strongest evidence that these are genuine modeling decisions, not incidental parameters. LUAD benefits from curvature correction and compact feature sets; GSE161711 benefits from simple Euclidean geometry and broader feature sets. This mirrors a familiar principle in genomics: there is no one-size-fits-all analysis pipeline.
+\end{keyconcept}
+
+% ============================================================
+\section{Biological Interpretation: What Do the Loops Mean?}
+\label{sec:biology}
+% ============================================================
+
+\subsection{What are H1 loops in cancer expression data?}
+
+An H1 loop in patient expression space can arise from several biological sources:
+
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Subtype transitions}: When patients don't form discrete clusters but instead transition continuously between subtypes (e.g., TRU $\to$ PI in LUAD), the transitional samples can create loops connecting the subtypes.
+
+    \item \textbf{Regulatory feedback}: If a regulatory circuit creates periodic-like expression variation (e.g., cell-cycle genes in proliferative subtypes), samples at different phases of this circuit can form a loop.
+
+    \item \textbf{Drug resistance continua}: In CLL treated with venetoclax, cells may transition from sensitive to resistant states through intermediate states involving MCL-1 upregulation, metabolic rewiring, or NF-$\kappa$B activation. These transitions can create bridges or loops in expression space.
+
+    \item \textbf{Manifold structure}: When patients lie on a manifold (e.g., a differentiation trajectory with branching), the manifold's own geometry can create topological features that reflect genuine biological organization.
+\end{enumerate}
+
+\begin{takeaway}
+The genes that CC-SPR identifies are not the ``most differentially expressed'' genes. They are the genes whose \textbf{coordinated variation traces a topological loop}. This is a fundamentally different type of biological signal---it's about \emph{connectivity and transitions}, not \emph{group differences}.
+
+For example, a gene that is moderately expressed in all subtypes but whose expression \emph{pattern across the subtype transition} traces the loop would be identified by CC-SPR but missed by differential expression analysis.
+\end{takeaway}
+
+\subsection{What the DTM result suggests about LUAD}
+
+DTM (Distance-to-Measure) won on LUAD. DTM inflates distances around sparse/outlier regions. This means:
+\begin{itemize}
+    \item The topological signal in LUAD is partially obscured by outlier patients (possibly patients with unusual mutation profiles, rare subtypes, or technical artifacts).
+    \item By downweighting outlier influence, DTM reveals a cleaner topological structure that better predicts subtype classification.
+    \item The 76 genes selected by DTM on LUAD represent a candidate gene panel for further study---these are the genes whose coordinated expression traces the most robust loop in the density-corrected landscape.
+\end{itemize}
+
+\subsection{What the Euclidean dominance suggests about GSE161711}
+
+Euclidean distance won on GSE161711. This means:
+\begin{itemize}
+    \item The venetoclax-resistance signal in CLL aligns with the dominant variance axes in expression space.
+    \item The patient neighborhoods in PCA space already capture the biologically relevant structure.
+    \item Adding curvature correction or diffusion-based distances introduces perturbation that obscures this signal.
+    \item The 59 genes selected by Euclidean represent a broader gene panel; alternatively, the 24 genes from DTM offer a more focused starting point for pathway analysis.
+\end{itemize}
+
+\subsection{The support-accuracy tradeoff}
+
+A key insight for practical gene discovery: there is a tradeoff between how many genes the pipeline selects and how well those genes classify patients.
+
+\begin{itemize}
+    \item \textbf{Fewer genes, more focused biology}: DTM on GSE161711 selects only 24 genes. These are easier to validate experimentally and more amenable to pathway analysis. But classification F1 is 0.618.
+    \item \textbf{More genes, better prediction}: Euclidean on GSE161711 selects 59 genes. Classification F1 is 0.748, but the larger gene set is harder to interpret biologically.
+\end{itemize}
+
+\begin{takeaway}
+Choose your backend based on your downstream goal:
+\begin{itemize}
+    \item If you want the \textbf{best classifier}, pick the backend with highest F1 for your dataset.
+    \item If you want the \textbf{most interpretable gene set}, pick the backend with the most compact support (fewest genes).
+    \item If you want \textbf{robust gene candidates}, compare TIP profiles across backends---genes selected by \emph{multiple} backends are the most robust topological markers.
+\end{itemize}
+\end{takeaway}
+
+% ============================================================
+\section{How to Read the Diagnostic Tables}
+\label{sec:diagnostics}
+% ============================================================
+
+The paper reports several diagnostics that may be unfamiliar to biologists. Here's a decoder:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3cm}p{9cm}}
+\toprule
+\textbf{Metric} & \textbf{What it means in biological terms} \\
+\midrule
+H1 lifetime & How ``real'' the most persistent loop is. Longer = more robust structure. Think of it as the persistence of a structural pattern across distance scales. \\
+\midrule
+H1 prominence & How much the top loop stands out from noise. Higher = the loop is clearly distinct from random fluctuations. \\
+\midrule
+TIP support & Number of genes with nonzero topological influence. Fewer = more focused gene set. \\
+\midrule
+TIP entropy & How uniformly the topological signal is distributed across genes. Low entropy = concentrated on few genes (good for interpretation). High entropy = spread across many genes. \\
+\midrule
+TIP Gini & Inequality of gene weights. High Gini = a few genes dominate (good for hypothesis generation). Low Gini = even distribution. \\
+\midrule
+$n_{\text{ok}}$ & Number of bootstrap replicates that produced valid H1 loops (out of 5). If $< 5$, the topology is unstable under resampling. \\
+\midrule
+Weighted F1 & Classification accuracy on held-out patients using only TIP-selected genes. Weighted by class frequency to handle class imbalance. \\
+\bottomrule
+\end{tabular}
+\caption{Diagnostic metrics decoded for biologists.}
+\end{table}
+
+% ============================================================
+\section{What This Means for Your Research}
+\label{sec:practical}
+% ============================================================
+
+\subsection{When should you consider using CC-SPR?}
+
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{You suspect transitional biology}: If your data has subtypes with continuous transitions (not discrete clusters), topology can detect the loop-like structure at the transitions.
+    \item \textbf{You want topology-derived gene sets}: If you want to ask ``which genes participate in the topological structure of my data?'' rather than ``which genes differ between groups?''
+    \item \textbf{You care about geometry sensitivity}: If you want to know whether your results change when you measure distance differently.
+    \item \textbf{You want compact gene panels}: If you need a short gene list for experimental validation or pathway analysis.
+\end{enumerate}
+
+\subsection{When should you NOT use CC-SPR?}
+
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{You just need a classifier}: Standard methods (random forest on high-variance genes) will likely perform better on raw accuracy.
+    \item \textbf{Your data has clear discrete clusters with no transitions}: If there's no loop-like structure, topology won't add much.
+    \item \textbf{You have very large single-cell data ($>$1000 cells)}: The current implementation is memory-intensive. Wait for optimized versions.
+\end{enumerate}
+
+\subsection{Recommended workflow}
+
+\begin{enumerate}
+    \item Run the pipeline with all 5 backends on your dataset
+    \item Compare F1 scores to see which geometry best captures your biology
+    \item Compare TIP profiles across backends:
+    \begin{itemize}
+        \item \textbf{Core genes} = selected by 3+ backends (robust topological markers)
+        \item \textbf{Backend-specific genes} = selected by only 1 backend (geometry-dependent signal)
+    \end{itemize}
+    \item Run pathway analysis (KEGG, Reactome) on the core gene set and each backend-specific set
+    \item Use the most compact gene set (e.g., DTM's 24 genes on GSE161711) as your primary candidate panel for experimental follow-up
+\end{enumerate}
+
+% ============================================================
+\section{Glossary of Key Terms}
+\label{sec:glossary}
+% ============================================================
+
+\begin{description}[leftmargin=0em, style=nextline]
+    \item[Persistent homology] A mathematical method that detects topological features (clusters, loops, voids) in data across all distance scales simultaneously, reporting how long each feature ``persists.''
+
+    \item[H0 feature] A connected component (cluster) in the data.
+
+    \item[H1 feature] A loop---a circular pattern in the data that cannot be continuously shrunk to a point.
+
+    \item[Persistence barcode] A summary of all topological features, shown as a set of horizontal bars. Each bar's length indicates how robust the corresponding feature is.
+
+    \item[Harmonic representative] The smoothest possible cycle representing a topological loop. Minimizes the sum of squared edge weights. Produces dense (many-gene) output.
+
+    \item[Sparse representative (CC-SPR)] A cycle representing a topological loop that uses the fewest edges possible while still being faithful. Uses elastic-net regularization. Produces concentrated (few-gene) output.
+
+    \item[Geometry backend] The method used to compute patient-to-patient distances. Different backends reveal different aspects of data structure.
+
+    \item[TIP (Topological Influence Profile)] A per-gene score (0 to 1) indicating how consistently that gene is selected as topologically important across bootstrap resamples.
+
+    \item[Vietoris--Rips filtration] A method for gradually building a network from point data by connecting all points within a growing distance threshold.
+
+    \item[Elastic net] A penalized regression technique combining L1 (sparsity) and L2 (stability) penalties. Used in CC-SPR to find sparse cycle representatives.
+
+    \item[Gini coefficient] A measure of inequality. High Gini = signal concentrated on few genes. Low Gini = signal spread uniformly.
+
+    \item[DTM (Distance to Measure)] A robust distance that accounts for local density, downweighting outliers in sparse regions.
+\end{description}
+
+% ============================================================
+\section{Summary of Key Numbers}
+\label{sec:numbers}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{7cm}l}
+\toprule
+\textbf{Finding} & \textbf{Number} \\
+\midrule
+Best F1 on LUAD (DTM backend) & 0.532 \\
+Best F1 on GSE161711 (Euclidean backend) & 0.748 \\
+Standard baseline F1 on LUAD & 0.767 \\
+Standard baseline F1 on GSE161711 & 0.971 \\
+Most compact gene set (DTM on GSE161711) & 24 genes \\
+Broadest gene set (Ricci on GSE161711) & 95 genes \\
+Longest H1 lifetime (Ricci on GSE161711) & 0.125 \\
+Total compute time for all 15 experiments & 3.3 hours \\
+Number of geometry backends tested & 5 \\
+Number of datasets tested & 3 \\
+\bottomrule
+\end{tabular}
+\caption{Key numbers from the CC-SPR study.}
+\end{table}
+
+\end{document}
