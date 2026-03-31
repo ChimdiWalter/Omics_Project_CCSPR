@@ -2,7 +2,7 @@
 
 A topological data analysis (TDA) framework for geometry-sensitive feature selection in omics data. CC-SPR uses persistent homology with multiple curvature-aware distance backends to identify biologically coherent gene modules from high-dimensional expression matrices.
 
-**Target journal:** Bioinformatics (Oxford)
+**Target journal:** Bioinformatics (Oxford) — manuscript in preparation
 
 ## Key Results
 
@@ -109,8 +109,8 @@ cc-spr/
 │   ├── download_tcga_luad.py
 │   ├── download_arabidopsis_root.py
 │   └── ...
-├── manuscript_claude/         # LaTeX manuscript sources
-│   └── cc_spr_revised_full.tex  # Main manuscript (37 pp, Bioinformatics)
+├── manuscript_new/            # LaTeX manuscript sources
+│   └── cc_spr_revised_full.tex  # Main manuscript (37 pp)
 ├── results/                   # Generated results (tables, figures)
 ├── pyproject.toml             # Package metadata and dependencies
 ├── Makefile                   # Reproducibility automation
@@ -134,9 +134,7 @@ If you use CC-SPR in your research, please cite:
   title={CC-SPR: Cycle-Consistent Sparse Persistent Representatives for
          Geometry-Sensitive Topological Feature Selection in Omics Data},
   author={Ndubuisi, Chimdi Walter},
-  journal={Bioinformatics},
-  year={2026},
-  note={Under review}
+  year={2026}
 }
 ```
 
