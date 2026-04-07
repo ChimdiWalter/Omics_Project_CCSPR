@@ -1,0 +1,37 @@
+[2026-04-06T17:46:22.494690Z] === Bootstrap Stability Analysis: arabidopsis ===
+  After filtering clusters < 20: 7522 cells, 16 clusters
+  After subsampling: 500 cells
+  Arabidopsis root: 500 cells, 50 features, 16 classes
+  After filtering clusters < 20: 7522 cells, 16 clusters
+  After subsampling: 500 cells
+  Arabidopsis root: 500 cells, 2000 features, 16 classes
+[2026-04-06T17:46:27.781816Z]   Data: (500, 50), classes: 16
+[2026-04-06T17:46:27.782454Z] === Timing Probe ===
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+[2026-04-06T17:48:01.612385Z]   euclidean: 31.28s/iter → estimated 313s (5.2min) for n_boot=10
+[2026-04-06T17:50:09.631074Z]   dtm: 42.67s/iter → estimated 427s (7.1min) for n_boot=10
+[2026-04-06T17:50:09.631109Z] === TIP Stability Analysis ===
+[2026-04-06T17:50:09.632861Z]   Variable genes: 50 selected from 50
+[2026-04-06T17:50:09.632914Z]   euclidean: running n_boot=10...
+[2026-04-06T20:39:58.925932Z]     n_ok=10/10, support=46, entropy=3.655, gini=0.323, elapsed=10189.3s
+[2026-04-06T20:39:58.929444Z]   dtm: running n_boot=10...
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+/home/cnptp/.venvs/lesegenv/lib/python3.10/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
+[2026-04-06T23:53:28.261428Z]     n_ok=10/10, support=48, entropy=3.733, gini=0.289, elapsed=11609.3s
+[2026-04-06T23:53:28.268911Z]   Saved: results/arabidopsis_bootstrap/tables/bootstrap_stability_nboot10.csv
+[2026-04-06T23:53:28.270026Z] === DONE ===
