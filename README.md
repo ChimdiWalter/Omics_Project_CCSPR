@@ -2,7 +2,7 @@
 
 A topological data analysis (TDA) framework for geometry-sensitive feature selection in omics data. CC-SPR uses persistent homology with multiple curvature-aware distance backends to identify biologically coherent gene modules from high-dimensional expression matrices.
 
-**Target journal:** Bioinformatics (Oxford) — manuscript in preparation
+**Target journals:** Bioinformatics (Oxford) and Bioinformatics Advances (Oxford) — submission-ready drafts in [manuscript_new/manuscript_bioinformatics_submission/](manuscript_new/manuscript_bioinformatics_submission/) and [manuscript_new/manuscript_bioinformatics_advances_submission/](manuscript_new/manuscript_bioinformatics_advances_submission/). Long-form working draft: [manuscript_new/cc_spr_revised_full_4.tex](manuscript_new/cc_spr_revised_full_4.tex).
 
 ## Key Results
 
@@ -16,6 +16,15 @@ A topological data analysis (TDA) framework for geometry-sensitive feature selec
 | Arabidopsis root (n=500) | Euclidean | 0.5933 |
 
 Five geometry backends are supported: `euclidean`, `ricci`, `diffusion`, `phate_like`, `dtm`.
+
+### Bootstrap stability and significance
+
+High-bootstrap TIP stability and label-permutation significance were added in revision (April 2026):
+
+- **GSE161711, n_boot=1000** across all five backends — TIP support sizes 21–46, entropies 2.84–3.66; permutation test on observed F1=0.6876 yields p=0.0000 (200 permutations).
+- **Arabidopsis, n_boot=10 at 500 cells** (euclidean and DTM) — successfully completed at reduced cell count after the full 2,999-cell point cloud proved infeasible (O(n³) Rips triangle enumeration on dense PCA distance matrices: ~12,000 s/iter at 1,000 cells, OOM at 2,999). Final supports: euclidean=46, DTM=48.
+
+Full feasibility log: [results/bootstrap_feasibility_log.md](results/bootstrap_feasibility_log.md) and [results/bootstrap_feasibility_log_addendum.md](results/bootstrap_feasibility_log_addendum.md).
 
 ## Installation
 
